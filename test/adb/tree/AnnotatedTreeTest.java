@@ -1,142 +1,243 @@
 package adb.tree;
 
-import adb.distribution.ADBTreeDistribution;
 import adb.distribution.Parameterization;
-import beast.base.evolution.alignment.Alignment;
-import beast.base.evolution.tree.ClusterTree;
+import beast.base.evolution.alignment.Taxon;
+import beast.base.evolution.alignment.TaxonSet;
+import beast.base.evolution.tree.Node;
 import beast.base.evolution.tree.Tree;
-import beast.base.evolution.tree.TreeParser;
 import beast.base.inference.parameter.IntegerParameter;
 import beast.base.inference.parameter.RealParameter;
-import beast.base.core.Function.Constant;
-import feast.fileio.AlignmentFromNexus;
+import beast.base.evolution.tree.TreeParser;
 import org.junit.jupiter.api.Test;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
 
-import java.util.Arrays;
+import javax.xml.parsers.DocumentBuilderFactory;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.TreeMap;
+import java.util.Map;
 
-import static adb.util.Utils.distributeDirichlet;
+import static org.junit.jupiter.api.Assertions.*;
 
 public class AnnotatedTreeTest {
 
-    @Test
-    public void testTreeClass() {
-
-        // define tree
-        // not typed:
-        // String newick = "((D:5.0,C:5.0):6.0,(A:8.0,B:8.0):3.0):0.0;";
-
-        // tip-typed:
-        // String newick = "((1[&type=0]:1.378074977,11[&type=1]:1.378074977):2.6813596,(3[&type=0]:1.71378645,6[&type=0]:1.71378645):2.345648127):3.940565423;";
-
-        // fully-typed:
-        String newick = "((((1[&type=0]:1.378074977,(11[&type=1]:0.9265429956)[&type=1]:0.4515319812)[&type=1]:0.5929298741)[&type=0]:2.088429726,(((3[&type=0]:0.4513672607)[&type=1]:1.262419189,((6[&type=0]:0.05632331623)[&type=1]:0.7255498933)[&type=1]:0.9319132401)[&type=1]:0.2056271944)[&type=0]:2.140020933)[&type=0]:2.073580344)[&type=0]:1.866985079;";
-
-        // parse tree
-        //TreeParser parser = new TreeParser();
-        //parser.initByName("newick",newick, "adjustTipHeights", true, "IsLabelledNewick", true);
-        AnnotatedTreeParser parser = new AnnotatedTreeParser();
-        parser.initByName("newick", newick);
-
-        System.out.print(parser);
+    /** Exposes the protected state methods. */
+    static class StatefulTree extends AnnotatedTreeParser {
+        void doStore() { store(); }
+        void doRestore() { restore(); }
     }
 
-    @Test
-    public void testDirichlet() {
-        double[] x = {4, 4, 4};
-        double alpha = 5;
-        distributeDirichlet(x, alpha);
-        System.out.println(Arrays.toString(x));
-    }
-
-    @Test
-    public void testInitialisation() throws Exception {
-
-        Tree tree = new TreeParser("((1:43.08956348,17:43.08956348):7.807559093,(8:17.26568023,10:17.26568023):33.63144235):8.415882985;", true);
+    private Parameterization model() {
         Parameterization model = new Parameterization();
         model.initByName("nTypes", 1,
-                "lifetime", new RealParameter("10"),
-                "shape", new IntegerParameter("20"),
+                "lifetime", new RealParameter("1.0"),
+                "shape", new IntegerParameter("5"),
                 "death", new RealParameter("0.1"),
-                "sampling", new RealParameter("0.1"),
-                "originTime", 70.0);
-
-        AnnotatedTree aTree = new AnnotatedTreeInitialiser();
-        aTree.initByName("tree", tree, "parameterization", model);
-        System.out.println(aTree);
-
-        tree = aTree.convertAnnotatedTree(false);
-        System.out.println(tree);
+                "sampling", new RealParameter("0.5"),
+                "originTime", 10.0);
+        return model;
     }
 
+    // a tree built from taxa only: every node needs its own event
     @Test
-    public void testInitialisationComplex() throws Exception {
+    public void testCaterpillarFromTaxa() {
+        TaxonSet taxa = new TaxonSet();
+        taxa.initByName("taxon", new Taxon("a"), "taxon", new Taxon("b"), "taxon", new Taxon("c"));
+        AnnotatedTree tree = new AnnotatedTree();
+        tree.initByName("taxonset", taxa);
 
-        Tree tree = new TreeParser("((1849[&type=2]:6.934016968,(1392[&type=1]:4.353209345,1808[&type=1]:4.353209345):2.580807623):2.599236762,((931[&type=1]:8.518002011,(1104[&type=2]:7.689335149,(2705[&type=0]:3.622823942,890[&type=2]:3.622823942):4.066511207):0.8286668624):0.4522656605,((2768[&type=0]:4.956776144,2014[&type=0]:4.956776144):3.478486295,((573[&type=1]:7.406632908,(439[&type=2]:5.929580764,1697[&type=3]:5.929580764):1.477052145):0.4893282464,((1215[&type=2]:3.953081826,944[&type=3]:3.953081826):3.406588011,(434[&type=2]:5.293885734,(2129[&type=0]:3.600093916,1253[&type=1]:3.600093916):1.693791818):2.065784103):0.5362913174):0.5393012838):0.5350052332):0.5629860586);",
-                true);
-        Parameterization model = new Parameterization();
-        model.initByName("nTypes", 4,
-                "lifetime", new RealParameter("0.5 1 2 3"),
-                "shape", new IntegerParameter("100 50 20 5"),
-                "death", new RealParameter("0.05 0.1 0.1 0.1"),
-                "symTransitions", new RealParameter("0.4 0 0 0 0 0.2 0 0 0 0 1 0 0 0 0 1"),
-                "asymTransitions", new RealParameter("0 0.6 0 0 0 0 0.5 0.3 0 0 0 0 0 0 0 0"),
-                "sampling", new RealParameter("0.005 0.005 0.005 0.005"),
-                "originTime", 10.0);
-
-        AnnotatedTree aTree = new AnnotatedTreeInitialiser();
-        aTree.initByName("tree", tree, "parameterization", model, "scale", 1.0);
-        System.out.println(aTree);
-
-        tree = aTree.convertAnnotatedTree(true);
-        System.out.println(tree);
-
-        // calculate tree log-likelihood (check if not -Infinity)
-        ADBTreeDistribution distribution = new ADBTreeDistribution();
-        distribution.initByName("tree", aTree,
-                "parameterization", model);
-
-        double logL = distribution.calculateTreeLogLikelihood(aTree);
-        System.out.println(logL);
+        assertEquals(5, tree.getNodeCount());
+        assertDoesNotThrow(() -> tree.validate(model()));
     }
 
-
+    // store and restore bring back the events together with the topology
     @Test
-    public void testInitialisationFromAlignment() throws Exception {
+    public void testStoreRestoreEvents() {
+        StatefulTree tree = new StatefulTree();
+        tree.initByName("newick", "((1:0.4):0.4,2:0.8):1;");
+        AnnotatedNode leaf = (AnnotatedNode) tree.getNode(0);
+        assertEquals(2, leaf.getEventCount());
+        String before = tree.toString();
 
-        Alignment alignment = new AlignmentFromNexus();
-        alignment.initByName("fileName", "/Users/jpilarski/Projects/mtADB/alignments/alignment-multi-type.nexus");
+        tree.doStore();
+        leaf.getEvents().get(1).setHeight(0.7);
+        leaf.addEvent(new AnnotatedNode.EventNode(0, 0.75), true);
+        assertEquals(3, leaf.getEventCount());
 
-        Tree tree = new ClusterTree();
-        tree.initByName("clusterType", "upgma",
-                "taxa", alignment,
-                "clock.rate", new Constant("0.05"));
+        tree.doRestore();
+        AnnotatedNode restored = (AnnotatedNode) tree.getNode(0);
+        assertEquals(2, restored.getEventCount());
+        assertEquals(0.4, restored.getEvent(1).getHeight(), 1e-12);
+        assertEquals(before, tree.toString());
+    }
 
-        System.out.println(tree);
+    // the checksum reacts to moving an event within its branch
+    @Test
+    public void testChecksumSeesSmallChanges() {
+        AnnotatedTreeParser tree = new AnnotatedTreeParser();
+        tree.initByName("newick", "((1:0.4):0.4,2:0.8):1;");
+        int before = tree.getChecksum();
+        ((AnnotatedNode) tree.getNode(0)).getEvents().get(1).setHeight(0.5);
+        assertNotEquals(before, tree.getChecksum());
+    }
 
+    // ---- two types: type 0 divides symmetrically or into (0, 1), type 1 only symmetrically ----
+
+    // lineage of leaf 1 is type 1 at the tip, type 0 above the event at 0.4
+    static final String EVENT_NEWICK = "((1[&type=1]:0.4)[&type=0]:0.4,2[&type=0]:0.8)[&type=0]:1.0;";
+
+    private Parameterization twoTypeModel() {
         Parameterization model = new Parameterization();
-        model.initByName("nTypes", 4,
-                "lifetime", new RealParameter("0.5 1 2 3"),
-                "shape", new IntegerParameter("100 50 20 5"),
-                "death", new RealParameter("0.05 0.1 0.1 0.1"),
-                "symTransitions", new RealParameter("0.4 0 0 0 0 0.2 0 0 0 0 1 0 0 0 0 1"),
-                "asymTransitions", new RealParameter("0 0.6 0 0 0 0 0.5 0.3 0 0 0 0 0 0 0 0"),
-                "sampling", new RealParameter("0.005 0.005 0.005 0.005"),
+        model.initByName("nTypes", 2,
+                "lifetime", new RealParameter("1 1"),
+                "shape", new IntegerParameter("5 5"),
+                "death", new RealParameter("0.1 0.1"),
+                "symTransitions", new RealParameter("0.5 0 0 1"),
+                "asymTransitions", new RealParameter("0 0.5 0 0"),
+                "sampling", new RealParameter("0.5 0.5"),
                 "originTime", 10.0);
+        return model;
+    }
 
-        // TODO: taxa names and metadata get lost!
-        AnnotatedTree aTree = new AnnotatedTreeInitialiser();
-        aTree.initByName("tree", tree, "parameterization", model, "scale", 1.0);
-        System.out.println(aTree);
+    private AnnotatedTreeParser parse(String newick) {
+        AnnotatedTreeParser tree = new AnnotatedTreeParser();
+        tree.initByName("newick", newick);
+        return tree;
+    }
 
-        tree = aTree.convertAnnotatedTree(true);
-        System.out.println(tree);
+    // events per leaf label as "type@height", independent of the node numbering
+    private Map<String, List<String>> histories(AnnotatedTree tree) {
+        Map<String, List<String>> histories = new TreeMap<>();
+        for (Node leaf : tree.getExternalNodes()) {
+            List<String> events = new ArrayList<>();
+            for (AnnotatedNode.EventNode e : ((AnnotatedNode) leaf).getEvents()) {
+                events.add(e.getType() + "@" + String.format("%.9f", e.getHeight()));
+            }
+            histories.put(leaf.getID(), events);
+        }
+        return histories;
+    }
 
-        // calculate tree log-likelihood (check if not -Infinity)
-        ADBTreeDistribution distribution = new ADBTreeDistribution();
-        distribution.initByName("tree", aTree,
-                "parameterization", model);
+    // Newick with single-child nodes: every single-child node becomes an event of the branch below it
+    @Test
+    public void testConvertEventTree() {
+        AnnotatedTreeParser tree = parse(EVENT_NEWICK);
 
-        double logL = distribution.calculateTreeLogLikelihood(aTree);
-        System.out.println(logL);
+        assertEquals(3, tree.getNodeCount());
+        AnnotatedNode leaf = (AnnotatedNode) tree.getExternalNodes().stream().filter(n -> n.getID().equals("1")).findFirst().get();
+        assertEquals(2, leaf.getEventCount());
+        assertEquals(1, leaf.getType());
+        assertEquals(0, leaf.getInitialType());
+        assertEquals(0.4, leaf.getEvent(1).getHeight(), 1e-12);
+        assertEquals(0.8, tree.getRoot().getHeight(), 1e-12);
+        assertEquals(0, ((AnnotatedNode) tree.getRoot()).getType());
+        assertDoesNotThrow(() -> tree.validate(twoTypeModel()));
+    }
+
+    // a branching tree: each node gets one event, with the type from the meta data
+    @Test
+    public void testConvertBranchingTree() {
+        Tree branching = new TreeParser("(1[&type=1]:1.0,2[&type=0]:1.0)[&type=0]:1.0;", true);
+        AnnotatedTree tree = new AnnotatedTree();
+        tree.convertBranchingTree(branching);
+
+        assertEquals(3, tree.getNodeCount());
+        for (Node n : tree.getNodesAsArray()) {
+            assertEquals(1, ((AnnotatedNode) n).getEventCount());
+        }
+        assertEquals(0, ((AnnotatedNode) tree.getRoot()).getType());
+        int leafTypes = 0;
+        for (Node leaf : tree.getExternalNodes()) leafTypes += ((AnnotatedNode) leaf).getType();
+        assertEquals(1, leafTypes);
+        assertDoesNotThrow(() -> tree.validate(twoTypeModel()));
+    }
+
+    // AnnotatedTree -> tree with single-child nodes -> AnnotatedTree gives the same histories
+    @Test
+    public void testConvertAnnotatedTreeRoundTrip() {
+        AnnotatedTreeParser tree = parse(EVENT_NEWICK);
+
+        Tree flat = tree.convertAnnotatedTree();
+        assertEquals(4, flat.getNodeCount(), "one extra node for the event");
+
+        AnnotatedTree back = new AnnotatedTree();
+        back.convertEventTree(flat);
+        assertEquals(histories(tree), histories(back));
+    }
+
+    // the string representation is parsed back to the same histories
+    @Test
+    public void testStringRoundTrip() {
+        AnnotatedTreeParser tree = parse(EVENT_NEWICK);
+        AnnotatedTreeParser parsed = parse(tree.toString());
+        assertEquals(histories(tree), histories(parsed));
+        assertDoesNotThrow(() -> parsed.validate(twoTypeModel()));
+    }
+
+    // fromXML (state file) reads both forms, with and without single-child nodes; tips are numbered from 0 there
+    @Test
+    public void testFromXML() throws Exception {
+        for (String newick : new String[]{"((0[&type=1]:0.4)[&type=0]:0.4,1[&type=0]:0.8)[&type=0]:1.0;",
+                "(0[&type=1]:1.0,1[&type=0]:1.0)[&type=0]:1.0;"}) {
+            Document doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().newDocument();
+            Element element = doc.createElement("tree");
+            element.setTextContent(newick);
+
+            AnnotatedTree tree = new AnnotatedTree();
+            tree.fromXML(element);
+
+            assertEquals(3, tree.getNodeCount());
+            assertDoesNotThrow(() -> tree.validate(twoTypeModel()), newick);
+        }
+    }
+
+    // store/restore and copies keep types as well as heights, and are independent of the original
+    @Test
+    public void testStoreRestoreAndCopyKeepTypes() {
+        StatefulTree tree = new StatefulTree();
+        tree.initByName("newick", EVENT_NEWICK);
+        int before = tree.getChecksum();
+
+        AnnotatedTree copy = tree.copy();
+        copy.initArrays();
+        assertEquals(before, copy.getChecksum());
+
+        tree.doStore();
+        AnnotatedNode leaf = (AnnotatedNode) tree.getNode(0);
+        leaf.getEvent(0).setType(0);
+        leaf.removeEvent(1);
+        assertNotEquals(before, tree.getChecksum());
+        assertEquals(before, copy.getChecksum(), "the copy is independent");
+
+        tree.doRestore();
+        assertEquals(before, tree.getChecksum());
+
+        AnnotatedTree assigned = new AnnotatedTree();
+        assigned.assignFrom(tree);
+        assertEquals(before, assigned.getChecksum());
+    }
+
+    // validate names the violation
+    @Test
+    public void testValidateRejectsInvalidTrees() {
+        Parameterization model = twoTypeModel();
+
+        AnnotatedTreeParser unsorted = parse(EVENT_NEWICK);
+        AnnotatedNode leaf = (AnnotatedNode) unsorted.getNode(0);
+        leaf.getEvent(1).setHeight(0.0);
+        assertThrows(IllegalStateException.class, () -> unsorted.validate(model));
+
+        // a type change must go from type 0 (above) to type 1 (below), not the other way round
+        AnnotatedTreeParser wrongDirection = parse("((1[&type=0]:0.4)[&type=1]:0.4,2[&type=0]:0.8)[&type=0]:1.0;");
+        assertThrows(IllegalStateException.class, () -> wrongDirection.validate(model));
+
+        // type 1 cannot divide into types 0 and 0
+        AnnotatedTreeParser impossibleDivision = parse("(1[&type=0]:1.0,2[&type=0]:1.0)[&type=1]:1.0;");
+        assertThrows(IllegalStateException.class, () -> impossibleDivision.validate(model));
+
+        // the stem starts with the origin type 0, but the root is of type 1
+        AnnotatedTreeParser wrongStem = parse("(1[&type=1]:1.0,2[&type=1]:1.0)[&type=1]:1.0;");
+        assertThrows(IllegalStateException.class, () -> wrongStem.validate(model));
     }
 }

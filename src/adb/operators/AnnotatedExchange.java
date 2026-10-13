@@ -1,17 +1,22 @@
 package adb.operators;
 
 import adb.tree.AnnotatedNode;
-import adb.tree.AnnotatedNode.EventNode;
+import beast.base.core.Description;
 import beast.base.core.Input;
 import beast.base.evolution.tree.Node;
 import beast.base.evolution.tree.Tree;
 import beast.base.inference.util.InputUtil;
 import beast.base.util.Randomizer;
 
-import java.util.ArrayList;
-import java.util.List;
-
-// modified version of beast.base.evolution.operator.Exchange
+/**
+ * Adapted from the Exchange operator of BEAST. The narrow version swaps a random node with its uncle,
+ * the wide version swaps two random nodes whose branches overlap in time. Every node keeps the events of its own branch.
+ * Because the parent heights are exchanged, the branches change length: their type changes are mapped onto
+ * the new length (with their Jacobian), and the hidden events between them are resampled.
+ * The type of the lineage at the top of a branch is not changed, so a move can make the division at one of the
+ * two parents impossible. Such moves have zero likelihood and are rejected right away.
+ */
+@Description("Exchange move for annotated trees: swaps subtrees while every node keeps its own branch events")
 public class AnnotatedExchange extends AnnotatedTreeOperator {
 
     public Input<Boolean> isNarrowInput = new Input<>("isNarrow", "if true (default) a narrow exchange is performed, otherwise a wide exchange", true);
@@ -43,8 +48,7 @@ public class AnnotatedExchange extends AnnotatedTreeOperator {
 
     public double narrow(final Tree tree) {
 
-        boolean exchangeEvents = true;
-        double iOldBranchProb = 0, uncleOldBranchProb = 0, iNewBranchProb, uncleNewBranchProb, logHR = 0;
+        double logHR = 0;
 
         final int internalNodes = tree.getInternalNodeCount();
         if (internalNodes <= 1) {
@@ -70,26 +74,15 @@ public class AnnotatedExchange extends AnnotatedTreeOperator {
             }
         }
 
+        if (uncle.getHeight() >= parentIndex.getHeight()) {
+            return Double.NEGATIVE_INFINITY; // uncle would get a branch of length 0
+        }
+
         int c2 = sisg(parentIndex) + sisg(uncle);
 
         Node i = (Randomizer.nextBoolean() ? parentIndex.getLeft() : parentIndex.getRight());
 
-        // TODO: extend resampling events to multi-type version
-        if (parameterization != null && parameterization.getNTypes() == 1) {
-            iOldBranchProb = getBranchProbability((AnnotatedNode)i, true);
-            uncleOldBranchProb = getBranchProbability((AnnotatedNode)uncle, true);
-            exchangeEvents = false;
-        }
-
-        exchangeNodes(i, uncle, parentIndex, grandParent, exchangeEvents);
-
-        if (parameterization != null && parameterization.getNTypes() == 1) {
-            // resample events along branch and calculate probability
-            iNewBranchProb = resampleEvents((AnnotatedNode)i, true);
-            logHR += (iOldBranchProb - iNewBranchProb);
-            uncleNewBranchProb = resampleEvents((AnnotatedNode)uncle, true);
-            logHR += (uncleOldBranchProb - uncleNewBranchProb);
-        }
+        logHR += exchangeBranches(i, uncle, parentIndex, grandParent);
 
         int validGPafter = validGP - c2 + sisg(parentIndex) + sisg(uncle);
         logHR += Math.log((float)validGP/validGPafter);
@@ -100,8 +93,7 @@ public class AnnotatedExchange extends AnnotatedTreeOperator {
 
     public double wide(final Tree tree) {
 
-        boolean exchangeEvents = true;
-        double iOldBranchProb = 0, jOldBranchProb = 0, iNewBranchProb, jNewBranchProb, logHR = 0;
+        double logHR = 0;
 
         final int nodeCount = tree.getNodeCount();
         Node i = tree.getRoot();
@@ -121,14 +113,7 @@ public class AnnotatedExchange extends AnnotatedTreeOperator {
                 && (j.getHeight() < p.getHeight())
                 && (i.getHeight() < jP.getHeight())) {
 
-            // TODO: extend resampling events to multi-type version
-            if (parameterization != null && parameterization.getNTypes() == 1) {
-                iOldBranchProb = getBranchProbability((AnnotatedNode)i, true);
-                jOldBranchProb = getBranchProbability((AnnotatedNode)j, true);
-                exchangeEvents = false;
-            }
-
-            exchangeNodes(i, j, p, jP, exchangeEvents);
+            logHR += exchangeBranches(i, j, p, jP);
 
             // all the nodes on the path from i/j to the common ancestor of i/j parents had a topology change,
             // so they need to be marked FILTHY.
@@ -148,14 +133,6 @@ public class AnnotatedExchange extends AnnotatedTreeOperator {
                 }
             }
 
-            if (parameterization != null && parameterization.getNTypes() == 1) {
-                // resample events along branch and calculate probability
-                iNewBranchProb = resampleEvents((AnnotatedNode)i, true);
-                logHR += (iOldBranchProb - iNewBranchProb);
-                jNewBranchProb = resampleEvents((AnnotatedNode)j, true);
-                logHR += (jOldBranchProb - jNewBranchProb);
-            }
-
             return logHR;
         }
 
@@ -165,40 +142,32 @@ public class AnnotatedExchange extends AnnotatedTreeOperator {
     }
 
 
-    // exchange sub-trees whose root are i and j
-    protected void exchangeNodes(Node i, Node j, Node p, Node jP, boolean exchangeEvents) {
+    /**
+     * Exchanges the subtrees i (child of p) and j (child of jP). Each subtree keeps the events on its own branch:
+     * the type changes are mapped onto the new branch length, and the hidden events between them are resampled.
+     * Returns the log of the Jacobian and of the ratio of the branch resampling densities.
+     */
+    private double exchangeBranches(Node i, Node j, Node p, Node jP) {
+
+        // after the exchange p has children j and its other child, jP has children i and its other child
+        if (!isDivisionPossible(p, j, getOtherChild(p, i)) || !isDivisionPossible(jP, i, getOtherChild(jP, j))) {
+            return Double.NEGATIVE_INFINITY;
+        }
+
+        double iOldBranchProb = getBranchProbability((AnnotatedNode)i, true);
+        double jOldBranchProb = getBranchProbability((AnnotatedNode)j, true);
+        double iOldTop = p.getHeight();
+        double jOldTop = jP.getHeight();
 
         // precondition p -> i & jP -> j
         replace(p, i, j);
         replace(jP, j, i);
-        // postcondition p -> j & p -> i
+        // postcondition p -> j & jP -> i
 
-        if (exchangeEvents) {
-            double cutHeight = Math.max(i.getHeight(), j.getHeight());
-            List<EventNode> iEventsBelow = new ArrayList<>();
-            List<EventNode> iEventsAbove = new ArrayList<>();
-            for (EventNode e : ((AnnotatedNode)i).getEvents()) {
-                if (e.getHeight() <= cutHeight) {
-                    iEventsBelow.add(e);
-                } else {
-                    iEventsAbove.add(e);
-                }
-            }
-            List<EventNode> jEventsBelow = new ArrayList<>();
-            List<EventNode> jEventsAbove = new ArrayList<>();
-            for (EventNode e : ((AnnotatedNode)j).getEvents()) {
-                if (e.getHeight() <= cutHeight) {
-                    jEventsBelow.add(e);
-                } else {
-                    jEventsAbove.add(e);
-                }
-            }
-
-            ((AnnotatedNode)i).setEvents(iEventsBelow);
-            ((AnnotatedNode)i).addEvents(jEventsAbove, true);
-            ((AnnotatedNode)j).setEvents(jEventsBelow);
-            ((AnnotatedNode)j).addEvents(iEventsAbove, true);
-        }
+        double logHR = scaleEvents((AnnotatedNode)i, iOldTop, jOldTop) + scaleEvents((AnnotatedNode)j, jOldTop, iOldTop);
+        logHR += iOldBranchProb - resampleEvents((AnnotatedNode)i, true);
+        logHR += jOldBranchProb - resampleEvents((AnnotatedNode)j, true);
+        return logHR;
     }
 
 }

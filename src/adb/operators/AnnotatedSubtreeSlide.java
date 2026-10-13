@@ -2,6 +2,7 @@ package adb.operators;
 
 import adb.tree.AnnotatedNode;
 import adb.tree.AnnotatedNode.EventNode;
+import beast.base.core.Description;
 import beast.base.core.Input;
 import beast.base.evolution.tree.Node;
 import beast.base.evolution.tree.Tree;
@@ -11,7 +12,17 @@ import beast.base.util.Randomizer;
 import java.util.ArrayList;
 import java.util.List;
 
-// modified version of beast.base.evolution.operator.SubtreeSlide
+/**
+ * Adapted from the SubtreeSlide operator of BEAST. The parent p of a random node i slides along the hidden events
+ * of the tree: by a random number of events (the window size) up, or down into the other child's branch,
+ * possibly into a different branch, which changes the topology. The events passed on the way move
+ * between the branches of p and its other child, so the ancestral type histories are kept.
+ * The branch above i changes length: its type changes are mapped onto the new length (with their Jacobian),
+ * and the hidden events between them are resampled.
+ * Along the way a type change of the sliding lineage can become the type of the division at p, or the other way round.
+ * Moves that make this division impossible have zero likelihood and are rejected right away.
+ */
+@Description("Subtree slide for annotated trees: moves the parent of a subtree along the hidden events of the tree")
 public class AnnotatedSubtreeSlide extends AnnotatedTreeOperator {
 
     public Input<Integer> sizeInput = new Input<>("size", "the size of the sliding window up and down, default 1", 1);
@@ -32,7 +43,7 @@ public class AnnotatedSubtreeSlide extends AnnotatedTreeOperator {
         Tree tree = (Tree) InputUtil.get(treeInput, this);
         final boolean markClades = markCladesInput.get();
 
-        double newHeight, oldBranchProb = 0.0, newBranchProb, logHR = 0.0;
+        double newHeight, oldHeight, oldBranchProb, newBranchProb, logHR = 0.0;
 
         Node i;
         // 1. choose a random node avoiding root
@@ -56,9 +67,8 @@ public class AnnotatedSubtreeSlide extends AnnotatedTreeOperator {
         } while (delta == 0);
 
 
-        if (parameterization != null && parameterization.getNTypes() == 1) {
-            oldBranchProb = getBranchProbability((AnnotatedNode)i, true);
-        }
+        oldBranchProb = getBranchProbability((AnnotatedNode)i, true);
+        oldHeight = p.getHeight();
 
         // store events from the old parent branch
         List<EventNode> pEvents = ((AnnotatedNode)p).getEvents();
@@ -170,7 +180,7 @@ public class AnnotatedSubtreeSlide extends AnnotatedTreeOperator {
                 newHeight = ((AnnotatedNode)newChild).getEvent(eventIndex).getHeight();
 
                 // TODO: potentially also add some margin around i's height
-                if (newHeight < i.getHeight()) {
+                if (newHeight <= i.getHeight()) {
                     return Double.NEGATIVE_INFINITY;
                 }
 
@@ -212,7 +222,7 @@ public class AnnotatedSubtreeSlide extends AnnotatedTreeOperator {
             } else {
                 int ix = ((AnnotatedNode)CiP).getEventCount() + delta; // delta is negative!
                 newHeight = ((AnnotatedNode)CiP).getEvents().get(ix).getHeight();
-                if (newHeight < i.getHeight()) {
+                if (newHeight <= i.getHeight()) {
                     return Double.NEGATIVE_INFINITY;
                 }
                 p.setHeight(newHeight);
@@ -224,14 +234,15 @@ public class AnnotatedSubtreeSlide extends AnnotatedTreeOperator {
             }
         }
 
-        // TODO: extend resampling events to multi-type version
-        if (parameterization != null && parameterization.getNTypes() == 1) {
-            // resample events along branch and calculate probability
-            newBranchProb = resampleEvents((AnnotatedNode)i, true);
-            logHR += (oldBranchProb - newBranchProb);
-        } else {
-            ((AnnotatedNode)i).getEvents().removeIf(e -> e.getHeight() >= newHeight);
+        // the division at p has new daughters (the types at the top of both branches are unchanged)
+        if (!isDivisionPossible(p, p.getLeft(), p.getRight())) {
+            return Double.NEGATIVE_INFINITY;
         }
+
+        // map the type changes on the i-branch to the new branch length, then resample the hidden events between them
+        logHR += scaleEvents((AnnotatedNode)i, oldHeight, newHeight);
+        newBranchProb = resampleEvents((AnnotatedNode)i, true);
+        logHR += (oldBranchProb - newBranchProb);
 
         return logHR;
     }

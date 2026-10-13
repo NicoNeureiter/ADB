@@ -2,6 +2,7 @@ package adb.operators;
 
 import adb.tree.AnnotatedNode;
 import adb.tree.AnnotatedNode.EventNode;
+import beast.base.core.Description;
 import beast.base.evolution.tree.Node;
 import beast.base.evolution.tree.Tree;
 import beast.base.inference.util.InputUtil;
@@ -10,7 +11,17 @@ import beast.base.util.Randomizer;
 import java.util.ArrayList;
 import java.util.List;
 
-// modified version of beast.base.evolution.operator.WilsonBalding
+/**
+ * Adapted from the Wilson-Balding operator of BEAST. It cuts the branch above a random node i and
+ * re-attaches it at a hidden event of another branch j that is older than i. The new parent of i takes over
+ * the part of branch j above the attachment event, and the old parent is replaced by its other child.
+ * Its events are merged into that child's branch, so the ancestral type histories are kept.
+ * The Hastings ratio counts the available attachment events in both directions.
+ * The branch above i changes length: its type changes are mapped onto the new length (with their Jacobian),
+ * and the hidden events between them are resampled.
+ * The move is rejected if the division at the attachment point is impossible for the model.
+ */
+@Description("Wilson-Balding move for annotated trees: re-attaches a subtree at a hidden event of another branch")
 public class AnnotatedWilsonBalding extends AnnotatedTreeOperator {
 
     @Override
@@ -18,7 +29,7 @@ public class AnnotatedWilsonBalding extends AnnotatedTreeOperator {
 
         Tree tree = (Tree) InputUtil.get(treeInput, this);
 
-        double oldMinAge, newMinAge, oldBranchProb, newBranchProb, newEventHeight, logHR;
+        double oldHeight, newHeight, oldMinAge, newMinAge, oldBranchProb, newBranchProb, logHR;
         int oldEventsCount, newEventsCount, oldMinNr, newMinNr, newEventNr;
 
         // choose a random node avoiding root
@@ -69,17 +80,26 @@ public class AnnotatedWilsonBalding extends AnnotatedTreeOperator {
 
         logHR = Math.log((double) newEventsCount / oldEventsCount);
 
-        // TODO: extend to multi-type version
-        if (parameterization != null && parameterization.getNTypes() == 1) {
-            // calculate current branch probability
-            oldBranchProb = getBranchProbability((AnnotatedNode)i, true);
-        } else {
-            oldBranchProb = 0.0;
-        }
+        // calculate current branch probability
+        oldBranchProb = getBranchProbability((AnnotatedNode)i, true);
+        // record height and type of event
+        oldHeight = p.getHeight();
+        int iEvent = ((AnnotatedNode)i).getInitialType();
 
-        // sample
+        // sample event to attach to
         newEventNr = newMinNr + Randomizer.nextInt(newEventsCount);
-        newEventHeight = ((AnnotatedNode)j).getEvents().get(newEventNr).getHeight();
+        newHeight = ((AnnotatedNode)j).getEvents().get(newEventNr).getHeight();
+        int jEvent = ((AnnotatedNode)j).getEvents().get(newEventNr).getType();
+
+        if (parameterization.getNTypes() > 1) {
+            // the division at the attachment point must be possible: parent type jEvent,
+            // daughters j (type below the attachment point) and i
+            // TODO: alternative - resample i-branch conditional on j-event
+            int jBelow = ((AnnotatedNode)j).getEvents().get(newEventNr - 1).getType();
+            if (parameterization.getDivisionFactor(jEvent, jBelow, iEvent) == 0.0) {
+                return Double.NEGATIVE_INFINITY;
+            }
+        }
 
         // disconnect p
         final Node pP = p.getParent();
@@ -107,7 +127,7 @@ public class AnnotatedWilsonBalding extends AnnotatedTreeOperator {
         }
 
         // update height
-        p.setHeight(newEventHeight);
+        p.setHeight(newHeight);
 
         // update events
         List<EventNode> pEvents = ((AnnotatedNode)p).getEvents();
@@ -117,16 +137,13 @@ public class AnnotatedWilsonBalding extends AnnotatedTreeOperator {
         ((AnnotatedNode)p).setEvents(new ArrayList<>(events));
         events.clear();
 
-        // TODO: extend resampling events to multi-type version
-        if (parameterization != null && parameterization.getNTypes() == 1) {
-            // resample events along branch and calculate probability
-            newBranchProb = resampleEvents((AnnotatedNode)i, true);
-            logHR += (oldBranchProb - newBranchProb);
-        } else {
-            ((AnnotatedNode)i).getEvents().removeIf(e -> e.getHeight() >= newEventHeight); // only keep events below cut
-        }
+        // map the events on the i-branch to the new branch length, then resample the hidden events between type changes
+        logHR += scaleEvents((AnnotatedNode)i, oldHeight, newHeight);
+
+        // resample events on the branch
+        newBranchProb = resampleEvents((AnnotatedNode)i, true);
+        logHR += (oldBranchProb - newBranchProb);
 
         return logHR;
     }
-
 }

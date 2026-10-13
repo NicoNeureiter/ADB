@@ -2,6 +2,7 @@ package adb.tree;
 
 import adb.tree.AnnotatedNode.EventNode;
 
+import adb.distribution.Parameterization;
 import beast.base.core.Description;
 import beast.base.core.Log;
 import beast.base.evolution.tree.Node;
@@ -16,6 +17,14 @@ import java.util.*;
 import static adb.tree.AnnotatedNode.getTypeOf;
 
 
+/**
+ * A tree whose nodes are AnnotatedNodes: each node carries the events (type changes and hidden events of the same type)
+ * along the branch above it, see AnnotatedNode. Node numbers index the node array (leaves first, root last),
+ * and the tree must keep that numbering. Store, restore and the assign methods copy the events together with
+ * the topology and heights. Trees are read and written as Newick with one single-child node per event,
+ * and can be built from a plain branching tree (convertBranchingTree), where every branch only has its node as event.
+ * Use validate to check a tree against a model.
+ */
 @Description("An annotated multi-type phylogenetic tree.")
 public class AnnotatedTree extends Tree {
 
@@ -55,18 +64,10 @@ public class AnnotatedTree extends Tree {
             if (m_taxonset.get() != null) {
                 // make a caterpillar
                 List<String> sTaxa = m_taxonset.get().asStringList();
-                Node left = new AnnotatedNode();
-                left.setNr(0);
-                left.setHeight(0);
-                left.setID(sTaxa.get(0));
+                Node left = newEventNode(0, 0, sTaxa.get(0));
                 for (int i = 1; i < sTaxa.size(); i++) {
-                    Node right = new AnnotatedNode();
-                    right.setNr(i);
-                    right.setHeight(0);
-                    right.setID(sTaxa.get(i));
-                    Node parent = new AnnotatedNode();
-                    parent.setNr(sTaxa.size() + i - 1);
-                    parent.setHeight(i);
+                    Node right = newEventNode(i, 0, sTaxa.get(i));
+                    Node parent = newEventNode(sTaxa.size() + i - 1, i, null);
                     left.setParent(parent);
                     parent.setLeft(left);
                     right.setParent(parent);
@@ -80,8 +81,7 @@ public class AnnotatedTree extends Tree {
 
             } else {
                 // make dummy tree with a single root node
-                root = new AnnotatedNode();
-                root.setNr(0);
+                root = newEventNode(0, 0, null);
                 root.setTree(this);
                 nodeCount = 1;
                 internalNodeCount = 0;
@@ -112,7 +112,16 @@ public class AnnotatedTree extends Tree {
             }
         }
 
-        // TODO: check types in traits here?
+    }
+
+    // a node of type 0 with its own event only, for basic tree construction
+    private AnnotatedNode newEventNode(int nr, double height, String id) {
+        AnnotatedNode node = new AnnotatedNode();
+        node.setNr(nr);
+        node.setHeight(height);
+        node.setID(id);
+        node.getEvents().add(new EventNode(0, height));
+        return node;
     }
 
 
@@ -122,7 +131,9 @@ public class AnnotatedTree extends Tree {
     }
 
 
-    // function to convert a strictly bifurcating tree in AnnotatedTree
+    /**
+     * Converts a strictly bifurcating tree in AnnotatedTree
+     */
     // cf. https://github.com/tgvaughan/MultiTypeTree/blob/master/src/multitypetree/evolution/tree/MultiTypeTreeFromUntypedNewick.java
     public void convertBranchingTree(Tree tree) {
 
@@ -162,13 +173,15 @@ public class AnnotatedTree extends Tree {
         }
 
         // construct AnnotatedTree
-        AnnotatedNode aRoot = annotatedNodes[annotatedNodes.length - 1];
+        AnnotatedNode aRoot = annotatedNodes[tree.getRoot().getNr()];
         assignFromWithoutID(new AnnotatedTree(aRoot));
         initArrays();
     }
 
 
-    // function to convert a tree with single-child nodes in AnnotatedTree
+    /**
+     * Converts a tree with single-child nodes in AnnotatedTree
+     */
     // cf. https://github.com/tgvaughan/MultiTypeTree/blob/master/src/multitypetree/evolution/tree/MultiTypeTree.java#L538
     // but using tips-to-root traversal
     public void convertEventTree(Tree tree) {
@@ -219,9 +232,8 @@ public class AnnotatedTree extends Tree {
         initArrays();
     }
 
-    /**
-     * Helper to skip the single-child event nodes and find the underlying AnnotatedNode child stored in the map.
-     */
+
+   // helper to skip the single-child event nodes and find the underlying AnnotatedNode child stored in the map
     private AnnotatedNode findBranchingChild(Node child, Map<Integer, AnnotatedNode> nodeMap) {
         Node current = child;
         while (current.getChildCount() == 1) {
@@ -231,7 +243,9 @@ public class AnnotatedTree extends Tree {
     }
 
 
-    // function to convert AnnotatedTree to Tree with single-child nodes compatible with newick format
+    /**
+     * Converts AnnotatedTree to Tree with single-child nodes compatible with Newick format
+     */
     // adapted from https://github.com/tgvaughan/MultiTypeTree/blob/master/src/multitypetree/evolution/tree/MultiTypeTree.java#L444
     public Tree convertAnnotatedTree() {
 
@@ -298,6 +312,7 @@ public class AnnotatedTree extends Tree {
         return new Tree(newRoot);
     }
 
+
     // helper to assign sensible node numbers to each internal node (children before parents)
     private int numberInternalNodes(Node node, int nextNr) {
         if (node.isLeaf())
@@ -314,10 +329,55 @@ public class AnnotatedTree extends Tree {
 
 
     /**
-     * ************************ *
-     * Methods ported from Tree *
-     * (adapted from MultiTypeTree)
-     * ************************ *
+     * Checks that the tree is a valid history under the model, and throws an IllegalStateException naming the first
+     * violation otherwise. Every node needs its own event first, with the node height, followed by hidden events in
+     * strictly ascending order below the parent (below the origin for the root). A type change must go from a
+     * direct progenitor to a descendant type, the division at every internal node must be possible,
+     * and with an origin the stem must start with the origin type.
+     * Linear in the number of events, intended for tests and assertions rather than for every MCMC step.
+     */
+    public void validate(Parameterization model) {
+        for (Node n : getNodesAsArray()) {
+            AnnotatedNode node = (AnnotatedNode) n;
+            List<EventNode> events = node.getEvents();
+            String where = "node " + node.getNr() + ": ";
+            if (events.isEmpty() || events.get(0).getHeight() != node.getHeight()) {
+                throw new IllegalStateException(where + "the first event must be the node itself");
+            }
+            for (int e = 1; e < events.size(); e++) {
+                if (events.get(e).getHeight() <= events.get(e - 1).getHeight()) {
+                    throw new IllegalStateException(where + "events must be in ascending order");
+                }
+                int below = events.get(e - 1).getType(), above = events.get(e).getType();
+                if (above != below && !model.isDirectProgenitor(above, below)) {
+                    throw new IllegalStateException(where + "type " + above + " cannot change to type " + below);
+                }
+            }
+            double top = node.isRoot() ? (model.getOriginTime() == null ? Double.POSITIVE_INFINITY : model.getOriginTime())
+                    : node.getParent().getHeight();
+            if (top <= node.getHeight() || events.get(events.size() - 1).getHeight() >= top) {
+                throw new IllegalStateException(where + "events must lie below the parent");
+            }
+            if (!node.isLeaf()) {
+                AnnotatedNode left = (AnnotatedNode) node.getLeft(), right = (AnnotatedNode) node.getRight();
+                if (model.getDivisionFactor(node.getType(), left.getInitialType(), right.getInitialType()) <= 0.0) {
+                    throw new IllegalStateException(where + "division of type " + node.getType() + " into types "
+                            + left.getInitialType() + " and " + right.getInitialType() + " is not possible");
+                }
+            }
+        }
+        AnnotatedNode root = (AnnotatedNode) getRoot();
+        if (model.getOriginTime() != null && root.getInitialType() != model.getOriginType()) {
+            throw new IllegalStateException("the stem must start with the origin type " + model.getOriginType());
+        }
+    }
+
+
+    /*
+      ************************ *
+      Methods ported from Tree *
+      (adapted from MultiTypeTree)
+      ************************ *
      */
 
     /**
@@ -562,39 +622,23 @@ public class AnnotatedTree extends Tree {
     }
 
 
-
     /**
-     * DEBUG CHECKS
+     * Debug check that two trees are the same: hash of the event heights, the event types and the number of
+     * events per node, in node order.
      */
-    Integer[] _hashValues = new Integer[2];
-
     @Override
     public int getChecksum() {
-        // If the AnnotatedTree is the same, the following properties need to match:
-
-        // 1. total number of hidden events
-        int n = 0;
+        List<Double> heights = new ArrayList<>();
+        List<Integer> types = new ArrayList<>();
         for (Node node : getNodesAsArray()) {
-            n += ((AnnotatedNode)node).getEventCount();
-        }
-        _hashValues[0] = n;
-
-        // 2. mean of waiting times
-        double sumN = 0;
-        for (int i = 0; i < getNodeCount(); i++) {
-            double[] times = ((AnnotatedNode)getNode(i)).getWaitingTimes();
-            int sumT = 0;
-            for (int j = 0; j < times.length; j++) {
-                sumT += times[j];
+            List<EventNode> events = ((AnnotatedNode) node).getEvents();
+            types.add(events.size());
+            for (EventNode event : events) {
+                heights.add(event.getHeight());
+                types.add(event.getType());
             }
-            sumT /= times.length;
-            sumN += sumT;
         }
-        double mean = sumN / getNodeCount();
-
-        _hashValues[1] = Double.hashCode(mean);
-
-        return Arrays.deepHashCode(_hashValues);
+        return Objects.hash(heights, types);
     }
 
 }

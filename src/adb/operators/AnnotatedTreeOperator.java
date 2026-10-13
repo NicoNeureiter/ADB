@@ -8,6 +8,7 @@ import adb.util.Utils;
 import beast.base.core.Description;
 import beast.base.core.Input;
 import beast.base.evolution.operator.TreeOperator;
+import beast.base.evolution.tree.Node;
 import beast.base.evolution.tree.Tree;
 import beast.base.util.Randomizer;
 import org.apache.commons.math.special.Gamma;
@@ -17,7 +18,18 @@ import java.util.ArrayList;
 import java.util.Arrays;
 
 
-@Description("This operator generates proposals for an AnnotatedTree.")
+/**
+ * Base class for operators that change an AnnotatedTree together with its hidden events.
+ * Along a branch the events are the node itself, the type changes and the hidden events of the same type.
+ * The topology operators keep the type changes of a branch (mapped to the new branch length, see scaleEvents)
+ * and redraw the hidden events between them with resampleEvents. The number of hidden events per type segment
+ * is approximated by a discretised normal distribution (central limit theorem for renewal processes),
+ * and their positions follow a Dirichlet distribution on the segment, with the shape of the lifetime distribution
+ * as concentration. A leaf sampled at time 0 is drawn exactly backwards in time from the lifetime distribution.
+ * resampleEvents returns the log density of the draw and getBranchProbability that of the current events,
+ * so the difference of the two enters the log Hastings ratio.
+ */
+@Description("Base class of operators that propose changes to an annotated tree and its hidden events")
 public abstract class AnnotatedTreeOperator extends TreeOperator {
 
     public Input<Parameterization> parameterizationInput =
@@ -38,7 +50,24 @@ public abstract class AnnotatedTreeOperator extends TreeOperator {
     }
 
 
-    // TODO: add option to operate on one type only?
+    /**
+     * Whether the model allows the division of the parent into the two daughters, given the type at the parent
+     * and the type at the bottom of each daughter's branch. Moves that create an impossible division have zero
+     * likelihood, so rejecting them early only saves the cost of resampling and of the likelihood.
+     */
+    protected boolean isDivisionPossible(Node parent, Node left, Node right) {
+        return parameterization.getDivisionFactor(AnnotatedNode.getTypeOf(parent),
+                ((AnnotatedNode) left).getInitialType(), ((AnnotatedNode) right).getInitialType()) > 0.0;
+    }
+
+    /**
+     * Redraws the hidden events above the node and returns the log proposal density of this draw.
+     * The node itself and the type changes stay where they are, and the hidden events of each type segment
+     * are drawn between them: the segments end at the next type change or at the parent
+     * (at the origin for the root, and for the root without origin nothing is drawn).
+     * If drawEventCount is false the number of events per segment is kept, otherwise it is drawn as well.
+     * The branch must have a positive length and its events must be sorted.
+     */
     protected double resampleEvents(AnnotatedNode node, boolean drawEventCount) {
 
         double logp = 0;
@@ -46,7 +75,8 @@ public abstract class AnnotatedTreeOperator extends TreeOperator {
         double tMax;
         if (node.isRoot()) {
             if (parameterization.getOriginTime() == null) {
-                return 0.0; // TODO: correct?
+                node.getEvent(0).setHeight(node.getHeight()); // keep the node event in sync with the node height
+                return 0.0; // no stem: the root has no hidden events, so there is nothing to draw
             } else {
                 tMax = parameterization.getOriginTime();
             }
@@ -79,14 +109,15 @@ public abstract class AnnotatedTreeOperator extends TreeOperator {
         logp += sampleEventsPerType(node, start, tMax, type, nEvents, drawEventCount, events);
 
         node.setEvents(events);
-        node.makeAllDirty(Tree.IS_DIRTY); // TODO: necessary here?
 
         // return probability
         return logp;
     }
 
 
-    // Draw hidden events along a (single-type) branch segment according to lifetime distribution
+    // Draws the hidden events of one type segment [start, end) into events and returns the log density of the draw.
+    // A leaf starting at height 0 draws waiting times backwards from end, and the remaining time contributes the survival probability.
+    // Otherwise the event count comes from the normal approximation and the positions from the Dirichlet distribution.
     private double sampleEventsPerType(AnnotatedNode node, double start, double end, int type, int nEvents, boolean drawEventCount, ArrayList<EventNode> events) {
 
         double logp = 0;
@@ -149,6 +180,10 @@ public abstract class AnnotatedTreeOperator extends TreeOperator {
     }
 
 
+    /**
+     * Log density with which resampleEvents would draw the current hidden events above the node
+     * (the same segments and the same distributions, but evaluated instead of sampled).
+     */
     protected double getBranchProbability(AnnotatedNode node, boolean drawEventCount) {
 
         double logp = 0;
@@ -193,6 +228,7 @@ public abstract class AnnotatedTreeOperator extends TreeOperator {
     }
 
 
+    // Log density of the hidden events of one type segment, starting at event index ix, mirrors sampleEventsPerType
     private double getProbabilityPerType(AnnotatedNode node, int ix, double start, double end, int type, int eventCount, boolean drawEventCount) {
 
         double logp = 0;
@@ -239,6 +275,29 @@ public abstract class AnnotatedTreeOperator extends TreeOperator {
         }
 
         return logp;
+    }
+
+
+    /**
+     * Maps the events above node i from the branch [i.height, oldTop] affinely onto [i.height, newTop],
+     * keeping the node itself fixed. Used by the topology operators when the parent of i changes height.
+     * Only the type changes need to be kept (the other hidden events are resampled afterwards), so the return value
+     * is the log Jacobian of this deterministic map for the m type changes: m * log(scale).
+     * It is 0 for a single type, and the branch is then fully described by resampleEvents.
+     */
+    protected static double scaleEvents(AnnotatedNode i, double oldTop, double newTop) {
+        double base = i.getHeight();
+        double scale = (newTop - base) / (oldTop - base);
+
+        int typeChanges = 0;
+        for (int e = 1; e < i.getEventCount(); e++) {
+            EventNode event = i.getEvent(e);
+            event.setHeight(base + (event.getHeight() - base) * scale);
+            if (event.getType() != i.getEvent(e - 1).getType()) {
+                typeChanges++;
+            }
+        }
+        return typeChanges == 0 ? 0.0 : typeChanges * Math.log(scale);
     }
 
 }

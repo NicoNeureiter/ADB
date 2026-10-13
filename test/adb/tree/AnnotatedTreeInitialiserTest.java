@@ -53,28 +53,7 @@ public class AnnotatedTreeInitialiserTest {
 
     // the starting tree must be a valid history under the model
     private void assertValid(AnnotatedTree tree, Parameterization model) {
-        for (Node n : tree.getNodesAsArray()) {
-            AnnotatedNode node = (AnnotatedNode) n;
-            List<EventNode> events = node.getEvents();
-            assertEquals(node.getHeight(), events.get(0).getHeight(), 0.0, "first event is the node itself");
-
-            double upper = node.isRoot() ? ORIGIN : node.getParent().getHeight();
-            for (int e = 1; e < events.size(); e++) {
-                assertTrue(events.get(e).getHeight() > events.get(e - 1).getHeight(), "events are sorted");
-                // a type change goes from a progenitor (above) to a descendant (below)
-                if (events.get(e).getType() != events.get(e - 1).getType()) {
-                    assertTrue(model.isDirectProgenitor(events.get(e).getType(), events.get(e - 1).getType()));
-                }
-            }
-            assertTrue(events.get(events.size() - 1).getHeight() < upper, "events are inside the branch");
-
-            if (!node.isLeaf()) {
-                List<EventNode> children = node.getChildEvents(0);
-                assertTrue(model.getDivisionFactor(node.getType(), children.get(0).getType(), children.get(1).getType()) > 0,
-                        "division is possible");
-            }
-        }
-        assertEquals(model.getOriginType(), ((AnnotatedNode) tree.getRoot()).getInitialType(), "stem starts with the origin type");
+        assertDoesNotThrow(() -> tree.validate(model));
     }
 
     // two type changes on the same branch (this used to give wrong event indices)
