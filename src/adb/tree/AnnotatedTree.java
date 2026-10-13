@@ -13,7 +13,7 @@ import beast.base.inference.StateNodeInitialiser;
 import java.io.PrintStream;
 import java.util.*;
 
-import static adb.tree.AnnotatedNode.getType;
+import static adb.tree.AnnotatedNode.getTypeOf;
 
 
 @Description("An annotated multi-type phylogenetic tree.")
@@ -135,7 +135,7 @@ public class AnnotatedTree extends Tree {
             aNode.setHeight(node.getHeight());
             aNode.setID(node.getID());
             List<EventNode> events = new ArrayList<>();
-            EventNode branchingEvent = new EventNode(getType(node), node.getHeight());
+            EventNode branchingEvent = new EventNode(getTypeOf(node), node.getHeight());
             events.add(branchingEvent);
             aNode.setEvents(events);
             annotatedNodes[i] = aNode;
@@ -193,11 +193,11 @@ public class AnnotatedTree extends Tree {
             aNode.setNr(nextNr);
 
             List<EventNode> events = new ArrayList<>();
-            events.add(new EventNode(getType(node), node.getHeight()));
+            events.add(new EventNode(getTypeOf(node), node.getHeight()));
             // CLIMB UP: look at the lineage above this node and collect all single-child nodes as events for THIS node
             Node parent = node.getParent();
             while (parent != null && parent.getChildCount() == 1) {
-                events.add(new EventNode(getType(parent), parent.getHeight()));
+                events.add(new EventNode(getTypeOf(parent), parent.getHeight()));
                 parent = parent.getParent();
             }
             aNode.setEvents(events);

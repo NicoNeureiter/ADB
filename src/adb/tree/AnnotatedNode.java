@@ -10,6 +10,13 @@ import java.util.Comparator;
 import java.util.List;
 
 
+/**
+ * A node that carries the events along the branch above it (towards the parent).
+ * The first event is the node itself, the others are hidden events in ascending order of height.
+ * The type of an event is the type of the lineage from that event up to the next one (or up to the parent).
+ * So getType() is the type at the node, and getInitialType() the type just below the parent.
+ * The height of the first event is expected to equal the node height.
+ */
 @Description("An annotated node in a multi-type phylogenetic tree")
 public class AnnotatedNode extends Node {
 
@@ -72,8 +79,9 @@ public class AnnotatedNode extends Node {
     // restore event list with the node itself being the only event
     public void clearEvents() {
         startEditing();
+        int type = getTypeOf(this); // read before the events are removed
         events.clear();
-        events.add(new EventNode(getType(this), height));
+        events.add(new EventNode(type, height));
     }
 
     public int getEventCount() {
@@ -102,15 +110,17 @@ public class AnnotatedNode extends Node {
         events.get(0).setType(type);
     }
 
-    // get type of any Node // TODO: make more generic?
-    public static int getType(Node node) {
-        int type;
-        if (node.getMetaData("type") == null) {
-            type = 0;
-        } else {
-            type = (int)(double)node.getMetaData("type");
+    /**
+     * Get the type of any node: the present type from the event list of an annotated node,
+     * otherwise (plain nodes, or annotated nodes without events yet) the "type" meta data (default 0).
+     * Always use this for variables declared as Node: calling getType() requires an AnnotatedNode.
+     */
+    public static int getTypeOf(Node node) {
+        if (node instanceof AnnotatedNode && !((AnnotatedNode) node).events.isEmpty()) {
+            return ((AnnotatedNode) node).getType();
         }
-        return type;
+        Object type = node.getMetaData("type");
+        return type == null ? 0 : ((Number) type).intValue();
     }
 
     public void addEvent(EventNode event, boolean append) {

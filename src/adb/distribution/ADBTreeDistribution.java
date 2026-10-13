@@ -24,7 +24,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static adb.util.Utils.TRANSFORM_FORWARD;
-import static adb.tree.AnnotatedNode.getType;
+import static adb.tree.AnnotatedNode.getTypeOf;
 import static org.apache.commons.math3.special.Gamma.logGamma;
 
 
@@ -98,7 +98,7 @@ public class ADBTreeDistribution extends SpeciesTreeDistribution {
 
         // make sure that all tips have valid types
         for (Node tip : tree.getExternalNodes()) {
-            int type = getType(tip);
+            int type = getTypeOf(tip);
             if (type < 0 || type >= nTypes) {
                 throw new IllegalArgumentException("Not all types at tips are valid, please check the input.");
             }
@@ -258,7 +258,7 @@ public class ADBTreeDistribution extends SpeciesTreeDistribution {
 
         } else {
             // TODO: account for type transition at root
-            conditionFactor = -2 * Math.log1p(-P0[getType(root)][nSteps - 1]);
+            conditionFactor = -2 * Math.log1p(-P0[getTypeOf(root)][nSteps - 1]);
 
             Node leftSubtree = root.getLeft();
             Node rightSubtree = root.getRight();
@@ -268,8 +268,8 @@ public class ADBTreeDistribution extends SpeciesTreeDistribution {
                         calculateAnnotatedSubtreeLikelihood((AnnotatedNode) rightSubtree, rightSubtree.getHeight(), rootHeight, subtreeLikelihood);
             } else {
                 double[][] subtreeLikelihood = new double[tree.getNodeCount()][nTypes];
-                logL = Math.log(calculateSubtreeLikelihood(leftSubtree, leftSubtree.getHeight(), rootHeight, subtreeLikelihood)[getType(root)]) +
-                        Math.log(calculateSubtreeLikelihood(rightSubtree, rightSubtree.getHeight(), rootHeight, subtreeLikelihood)[getType(root)]);
+                logL = Math.log(calculateSubtreeLikelihood(leftSubtree, leftSubtree.getHeight(), rootHeight, subtreeLikelihood)[getTypeOf(root)]) +
+                        Math.log(calculateSubtreeLikelihood(rightSubtree, rightSubtree.getHeight(), rootHeight, subtreeLikelihood)[getTypeOf(root)]);
             }
         }
 
@@ -378,7 +378,7 @@ public class ADBTreeDistribution extends SpeciesTreeDistribution {
     private double[] calculateSubtreeLikelihood(Node node, double start, double end, double[][] subtreeLikelihood) {
 
         double[] likelihood = new double[nTypes];
-        int type = getType(node);
+        int type = getTypeOf(node);
 
         // upstream branch
         double[][] branchDensity = calculateNodeLikelihood(node, start, end);
