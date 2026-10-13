@@ -35,3 +35,8 @@ bin/
 *.out
 *.log
 *.state
+logs/
+XML/
+dev/
+test_data/
+

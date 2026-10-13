@@ -6,6 +6,13 @@ import adb.util.Utils;
 import java.util.stream.IntStream;
 
 
+/**
+ * Solves the system of integral equations for P0_i(t), the probability that a lineage of type i
+ * alive at time t before the present has no sampled descendants.
+ * The equations are solved by Picard iteration on a uniform time grid, using FFT convolution
+ * with the lifetime densities.
+ * The solution is cached and only recomputed when the parameterization changes.
+ */
 public class P0System {
 
     Parameterization parameterization;
@@ -41,7 +48,6 @@ public class P0System {
         storedP0 = new double[nTypes][nSteps];
         dirty = true;
         solveP0();
-        dirty = false;
     }
 
 
@@ -139,6 +145,7 @@ public class P0System {
 
         // set final
         P0 = X;
+        dirty = false;
     }
 
 

@@ -1,7 +1,6 @@
 package adb.distribution;
 
 import adb.util.Utils;
-import beast.base.inference.parameter.IntegerParameter;
 import beast.base.inference.parameter.Parameter;
 import beast.base.inference.parameter.RealParameter;
 import org.apache.commons.math3.complex.Complex;
@@ -12,6 +11,11 @@ import java.util.BitSet;
 import static adb.util.Utils.TRANSFORM_FORWARD;
 
 
+/**
+ * Holds the gamma lifetime distribution of each type (mean lifetime and shape), evaluated on the
+ * uniform time grid: the CDF and the FFT of the PDF, ready for the convolutions in P0System and P1System.
+ * Only the types whose lifetime or shape changed are recomputed (see findDirty).
+ */
 public class LifetimeDistributions {
 
     RealParameter lifetimeParameter;
@@ -73,14 +77,6 @@ public class LifetimeDistributions {
         lifetimeDistributions = new LifetimeDistribution[nTypes];
         storedLifetimeDistributions = new LifetimeDistribution[nTypes];
 
-        /* for (int i = 0; i < nTypes; i++) {
-            lifetimeDistributions[i] = new LifetimeDistribution(
-                    lifetimeParameter.getArrayValue(i),
-                    shapeParameter.getArrayValue(i),
-                    new Complex[2 * nSteps],
-                    new double[nSteps]
-            );
-        } */
         // get all initial distributions
         dirty = true;
         dirtyIndices.set(0, nTypes);
@@ -108,6 +104,9 @@ public class LifetimeDistributions {
         for (int i = dirtyIndices.nextSetBit(0); i >= 0; i = dirtyIndices.nextSetBit(i+1)) {
             updateLifetimeDistribution(i);
         }
+
+        // dirtyIndices is kept until store/accept/restore, since restore() needs it
+        dirty = false;
     }
 
 
@@ -147,9 +146,9 @@ public class LifetimeDistributions {
             if (lifetimeParameter.getArrayValue(i) != lifetimeDistributions[i].lifetime ||
                     shapeParameter.getArrayValue(i) != lifetimeDistributions[i].shape) {
                 dirtyIndices.set(i);
+                dirty = true;
             }
         }
-        dirty = true;
     }
 
 

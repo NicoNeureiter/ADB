@@ -4,6 +4,13 @@ import adb.distribution.LifetimeDistributions.LifetimeDistribution;
 import adb.util.Utils;
 
 
+/**
+ * Solves the system of integral equations for P1_ij(t), the probability that a lineage of type i
+ * alive at time t before the present has exactly one sampled descendant, of type j.
+ * Uses the solution of P0System and the same Picard iteration and FFT convolution on a uniform
+ * time grid. The solution is cached and only recomputed when the parameterization changes.
+ * Only used when computing phylodynamic likelihood on unannotated tree.
+ */
 public class P1System {
 
     Parameterization parameterization;
@@ -42,7 +49,6 @@ public class P1System {
         storedP1 = new double[nTypes][nTypes][nSteps];
         dirty = true;
         solveP1();
-        dirty = false;
     }
 
 
@@ -114,6 +120,7 @@ public class P1System {
 
         // set final
         P1 = X;
+        dirty = false;
     }
 
 
