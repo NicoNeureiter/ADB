@@ -1,5 +1,6 @@
 package adb.distribution;
 
+import beast.base.core.Description;
 import beast.base.core.Input;
 import beast.base.inference.CalculationNode;
 import beast.base.inference.parameter.IntegerParameter;
@@ -9,6 +10,13 @@ import beast.base.inference.parameter.RealParameter;
 import java.util.ArrayList;
 
 
+/**
+ * Parameters of the age-dependent multi-type branching process: per type the expected lifetime,
+ * shape of the lifetime distribution, death and sampling probability,
+ * plus the symmetric and asymmetric division (transition) probabilities between types, and the origin time and type.
+ * Also provides the transition graph (direct and indirect progenitor relations) derived from the non-zero transition probabilities.
+ */
+@Description("Parameters of the age-dependent multi-type branching process: lifetime, death, sampling and division probabilities per type")
 public class Parameterization extends CalculationNode {
 
     public Input<Integer> nTypesInput =
@@ -113,7 +121,6 @@ public class Parameterization extends CalculationNode {
         storedTransitionGraph = new boolean[nTypes][nTypes];
         dirtyTransitions = true;
         updateTransitions();
-        dirtyTransitions = false;
     }
 
     public int getNTypes() {
@@ -164,6 +171,22 @@ public class Parameterization extends CalculationNode {
         return originType;
     }
 
+    /**
+     * Probability factor for a lineage of type parent dividing into daughters of types left and right
+     * (the order of the daughters does not matter). Symmetric if both daughters have the same type,
+     * asymmetric if exactly one daughter keeps the type of the parent, otherwise the division is impossible (0).
+     */
+    public double getDivisionFactor(int parent, int left, int right) {
+        if (left == right) {
+            return getSymTransition(parent, left);
+        } else if (left == parent) {
+            return 0.5 * getAsymTransition(parent, right);
+        } else if (right == parent) {
+            return 0.5 * getAsymTransition(parent, left);
+        }
+        return 0.0;
+    }
+
     public boolean isDirectProgenitor(int i, int j) {
         updateTransitions();
         return transitionMatrix[i][j];
@@ -193,9 +216,7 @@ public class Parameterization extends CalculationNode {
         // direct transitions (adjacency matrix)
         for (int i = 0; i < nTypes; i++) {
             for (int j = 0; j < nTypes; j++) {
-                if (getSymTransition(i, j) > 0 || getAsymTransition(i, j) > 0) {
-                    transitionMatrix[i][j] = true;
-                }
+                transitionMatrix[i][j] = getSymTransition(i, j) > 0 || getAsymTransition(i, j) > 0;
             }
         }
         // indirect transitions (transitive closure) -- Warshall's Algorithm, cf. https://cs.winona.edu/lin/cs440/ch08-2.pdf
@@ -211,6 +232,7 @@ public class Parameterization extends CalculationNode {
                 }
             }
         }
+        dirtyTransitions = false;
     }
 
     @Override

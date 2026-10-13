@@ -303,14 +303,8 @@ public class ADBTreeDistribution extends SpeciesTreeDistribution {
             AnnotatedNode leftSubtree = (AnnotatedNode) node.getLeft();
             AnnotatedNode rightSubtree = (AnnotatedNode) node.getRight();
 
-            double factor;
-            if (leftType == rightType) { // symmetric division
-                factor = parameterization.getSymTransition(nodeType, leftType);
-            } else if (leftType == nodeType) { // asymmetric division
-                factor = 0.5 * parameterization.getAsymTransition(nodeType, rightType);
-            } else if (rightType == nodeType) {
-                factor = 0.5 * parameterization.getAsymTransition(nodeType, leftType);
-            } else { // impossible transition
+            double factor = parameterization.getDivisionFactor(nodeType, leftType, rightType);
+            if (factor == 0.0) { // impossible division
                 return Double.NEGATIVE_INFINITY;
             }
 
