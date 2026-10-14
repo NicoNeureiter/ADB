@@ -5,16 +5,16 @@
   <service type="beast.base.core.BEASTInterface">
     <provider classname="adb.distribution.ADBTreeDistribution"/>
     <provider classname="adb.distribution.Parameterization"/>
-    <provider classname="adb.operators.MatrixDeltaExchangeOperator"/>
+    <provider classname="adb.distribution.ZeroOneExcludingPrior"/>
+    <provider classname="adb.operators.AnnotatedExchange"/>
+    <provider classname="adb.operators.AnnotatedScale"/>
+    <provider classname="adb.operators.AnnotatedSubtreeSlide"/>
+    <provider classname="adb.operators.AnnotatedWilsonBalding"/>
     <provider classname="adb.operators.EventSampler"/>
     <provider classname="adb.operators.JointEventSampler"/>
-    <provider classname="adb.operators.AnnotatedWilsonBalding"/>
-    <provider classname="adb.operators.AnnotatedExchange"/>
-    <provider classname="adb.operators.AnnotatedSubtreeSlide"/>
-    <provider classname="adb.operators.AnnotatedScale"/>
-    <provider classname="adb.tree.AnnotatedTreeParser"/>
+    <provider classname="adb.operators.MatrixDeltaExchangeOperator"/>
     <provider classname="adb.tree.AnnotatedTreeInitialiser"/>
+    <provider classname="adb.tree.AnnotatedTreeParser"/>
     <provider classname="adb.util.BranchingTreeLogger"/>
-    <provider classname="adb.util.ZeroOneExcludingPrior"/>
   </service>
 </package>

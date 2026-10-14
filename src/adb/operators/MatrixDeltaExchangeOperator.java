@@ -9,12 +9,16 @@ import beast.base.util.Randomizer;
 
 import java.text.DecimalFormat;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 
-/* Adapted from beast.base.inference.operator.DeltaExchangeOperator */
+/**
+ * Adapted from the delta exchange operator of BEAST. Each parameter is a square matrix stored row by row, for example
+ * the symmetric and the asymmetric division probabilities. The operator picks a row and two entries of that row, which
+ * may belong to different matrices, and moves a random amount of at most delta from one to the other. The sum of the
+ * row over all matrices is therefore kept. Entries that are 0 or 1 when the operator is created never move, so
+ * transitions that are impossible stay impossible. Values are kept in [0, 1].
+ */
 @Description("Operator for row-wise sum-constrained parameters.")
 public class MatrixDeltaExchangeOperator extends Operator {
 
@@ -24,28 +28,22 @@ public class MatrixDeltaExchangeOperator extends Operator {
     public Input<Double> deltaInput =
             new Input<>("delta", "Magnitude of change for two randomly picked values.", 0.1);
 
-    public Input<Boolean> excludeZeroOneInput =
-            new Input<>("excludeZeroOne", "Exclude zeros and ones from operation (default true)", true);
-
     public final Input<Boolean> autoOptimizeInput =
             new Input<>("autoOptimize", "Adjust delta during the MCMC run to improve mixing (default true).", true);
 
 
     private List<RealParameter> parameters;
     private double delta;
-    private boolean excludeZeroOne;
     private boolean autoOptimize;
 
     private int nparams;
     private int ndims;
-    private List<double[][]> matrices;
-    private List<Map<Integer, int[]>> indices;
+    private int[][][] movable; // columns of the entries that can move, per parameter and row
 
 
     public void initAndValidate() {
         parameters = parameterInput.get();
         delta = deltaInput.get();
-        excludeZeroOne = excludeZeroOneInput.get();
         autoOptimize = autoOptimizeInput.get();
 
         nparams = parameters.size();
@@ -54,74 +52,34 @@ public class MatrixDeltaExchangeOperator extends Operator {
         }
 
         int dim = parameters.get(0).getDimension();
-        ndims = (int)(Math.sqrt(dim));
-
-        // assert that matrices are quadratic
+        ndims = (int) Math.round(Math.sqrt(dim));
         if (dim != ndims * ndims) {
             throw new IllegalArgumentException("Provided parameters cannot be converted into quadratic matrices.");
         }
-
-        // if more parameters are provided, assert that they have the same dimension
-        if (nparams > 1) {
-            for (RealParameter param : parameters) {
-                if (param.getDimension() != dim) {
-                    throw new IllegalArgumentException("Parameter dimensions do not match.");
-                }
+        for (RealParameter param : parameters) {
+            if (param.getDimension() != dim) {
+                throw new IllegalArgumentException("Parameter dimensions do not match.");
             }
         }
 
-        // collect non-zero and non-one elements
-        if (excludeZeroOne) {
-            matrices = new ArrayList<>(nparams);
-            indices = new ArrayList<>(nparams);
-            List<int[]> nonZeroOneCounts = new ArrayList<>(nparams);
-
-            for (RealParameter param : parameters) {
-                // populate matrices
-                double[][] matrix = new double[ndims][ndims];
-                for (int i = 0; i < ndims; i++) {
-                    for (int j = 0; j < ndims; j++) {
-                        matrix[i][j] = param.getDoubleValues()[i * ndims + j];
-                    }
+        // collect the entries strictly between 0 and 1, row-wise
+        movable = new int[nparams][ndims][];
+        boolean valid = false;
+        for (int i = 0; i < ndims; i++) {
+            int rowCount = 0;
+            for (int p = 0; p < nparams; p++) {
+                List<Integer> columns = new ArrayList<>();
+                for (int j = 0; j < ndims; j++) {
+                    double v = parameters.get(p).getValue(i * ndims + j);
+                    if (v != 0.0 && v != 1.0) columns.add(j);
                 }
-                matrices.add(matrix);
-
-                // collect 0 and 1 indices row-wise
-                int[] counts = new int[ndims];
-                Map<Integer, int[]> idx = new HashMap<>();
-                for (int i = 0; i < ndims; i++) {
-
-                    // first, count non-zero elements
-                    int count = 0;
-                    for (double v : matrix[i]) if (v != 0.0 && v != 1.0) count++;
-                    counts[i] = count;
-
-                    // store indices
-                    if (count > 0) {
-                        int[] ix = new int[count];
-                        int k = 0;
-                        for (int j = 0; j < ndims; j++) {
-                            if (matrix[i][j] != 0.0 && matrix[i][j] != 1.0) ix[k++] = j;
-                        }
-                        idx.put(i, ix);
-                    }
-                }
-                indices.add(idx);
-                nonZeroOneCounts.add(counts);
+                movable[p][i] = columns.stream().mapToInt(Integer::intValue).toArray();
+                rowCount += columns.size();
             }
-
-            // check valid rows
-            boolean valid = false;
-            for (int i = 0; i < ndims; i++) {
-                int rowCount = 0;
-                for (int p = 0; p < nparams; p++) {
-                    rowCount += nonZeroOneCounts.get(p)[i];
-                }
-                if (rowCount > 1) { valid = true; break; } // at least one row can be modified with this operator
-            }
-            if (!valid) {
-                throw new IllegalArgumentException("Provided matrices are too sparse for this operator.");
-            }
+            if (rowCount > 1) valid = true; // at least one row can be modified with this operator
+        }
+        if (!valid) {
+            throw new IllegalArgumentException("Provided matrices are too sparse for this operator.");
         }
     }
 
@@ -129,58 +87,37 @@ public class MatrixDeltaExchangeOperator extends Operator {
     @Override
     public final double proposal() {
 
-        // select matrices and entries to modify
+        // select the matrices, then a row where both have entries that can move
         int m1 = Randomizer.nextInt(nparams);
         int m2 = Randomizer.nextInt(nparams);
-        int i = Randomizer.nextInt(ndims); // row
-
-        // columns
-        int j1;
-        int j2;
-        if (!excludeZeroOne) {
-            j1 = Randomizer.nextInt(ndims);
-            j2 = Randomizer.nextInt(ndims);
-        } else {
-            int k = i;
-            while (indices.get(m1).get(i) == null || indices.get(m2).get(i) == null) { //
-                if (i < ndims-1) {i++;} else {i=0;}
-                if (i == k) { return Double.NEGATIVE_INFINITY; } // no move possible; TODO: -Inf or 0.0? (affects optimization!)
-            }
-            j1 = randomSample(indices.get(m1).get(i));
-            j2 = randomSample(indices.get(m2).get(i));
+        int[] rows = new int[ndims];
+        int nrows = 0;
+        for (int i = 0; i < ndims; i++) {
+            if (movable[m1][i].length > 0 && movable[m2][i].length > 0) rows[nrows++] = i;
         }
+        if (nrows == 0) return Double.NEGATIVE_INFINITY; // no move possible, the state is unchanged
+        int i = rows[Randomizer.nextInt(nrows)];
 
-        int dim1 = i * ndims + j1; // entry 1
-        int dim2 = i * ndims + j2; // entry 2
-        if (m1 == m2 && dim1 == dim2) { // no move (self)
-            return Double.NEGATIVE_INFINITY; // TODO: -Inf or 0.0? (affects optimization!)
+        int dim1 = i * ndims + movable[m1][i][Randomizer.nextInt(movable[m1][i].length)]; // entry 1
+        int dim2 = i * ndims + movable[m2][i][Randomizer.nextInt(movable[m2][i].length)]; // entry 2
+        if (m1 == m2 && dim1 == dim2) {
+            return Double.NEGATIVE_INFINITY; // no move (self), the state is unchanged
         }
-
-        // extract values
-        double value1 = parameters.get(m1).getValue(dim1);
-        double value2 = parameters.get(m2).getValue(dim2);
 
         // update values
+        RealParameter param1 = parameters.get(m1);
+        RealParameter param2 = parameters.get(m2);
         double d = Randomizer.nextDouble() * delta; // d ~ Uniform(0, delta)
-        value1 -= d / 2;
-        value2 += d / 2;
+        double value1 = param1.getValue(dim1) - d / 2;
+        double value2 = param2.getValue(dim2) + d / 2;
 
-        if (value1 < parameters.get(m1).getLower() || value1 > parameters.get(m1).getUpper() ||
-                value2 < parameters.get(m2).getLower() || value2 > parameters.get(m2).getUpper()) {
+        if (value1 < Math.max(0.0, param1.getLower()) || value2 > Math.min(1.0, param2.getUpper())) {
             return Double.NEGATIVE_INFINITY;
-        } else {
-            parameters.get(m1).setValue(dim1, value1);
-            parameters.get(m2).setValue(dim2, value2);
         }
+        param1.setValue(dim1, value1);
+        param2.setValue(dim2, value2);
 
         return 0.0; // symmetric move
-    }
-
-
-    // TODO: change to private or do in proposal
-    public static int randomSample(int[] values) {
-        int idx = Randomizer.nextInt(values.length);
-        return values[idx];
     }
 
 
