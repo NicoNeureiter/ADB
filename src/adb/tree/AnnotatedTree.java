@@ -132,10 +132,31 @@ public class AnnotatedTree extends Tree {
 
 
     /**
+     * Converts a tree in AnnotatedTree: a tree with single-child nodes is read as an event tree (convertEventTree),
+     * otherwise it must be strictly bifurcating (convertBranchingTree).
+     */
+    public void convertTree(Tree tree) {
+        boolean containsEvents = false;
+        for (int i = 0; i < tree.getNodeCount(); i++) {
+            if (tree.getNode(i).getChildCount() == 1) {
+                containsEvents = true;
+                break;
+            }
+        }
+
+        if (containsEvents) {
+            convertEventTree(tree);
+        } else {
+            convertBranchingTree(tree);
+        }
+    }
+
+
+    /**
      * Converts a strictly bifurcating tree in AnnotatedTree
      */
     // cf. https://github.com/tgvaughan/MultiTypeTree/blob/master/src/multitypetree/evolution/tree/MultiTypeTreeFromUntypedNewick.java
-    public void convertBranchingTree(Tree tree) {
+    protected void convertBranchingTree(Tree tree) {
 
         // create all nodes
         AnnotatedNode[] annotatedNodes = new AnnotatedNode[tree.getNodeCount()];
@@ -184,7 +205,7 @@ public class AnnotatedTree extends Tree {
      */
     // cf. https://github.com/tgvaughan/MultiTypeTree/blob/master/src/multitypetree/evolution/tree/MultiTypeTree.java#L538
     // but using tips-to-root traversal
-    public void convertEventTree(Tree tree) {
+    protected void convertEventTree(Tree tree) {
 
         // map to keep track of the AnnotatedNodes (key: original Node Nr, value: new AnnotatedNode)
         Map<Integer, AnnotatedNode> nodeMap = new HashMap<>();
@@ -606,19 +627,7 @@ public class AnnotatedTree extends Tree {
                 "IsLabelledNewick", false,
                 "offset", 0);
 
-        boolean containsEvents = false;
-        for (int i = 0; i < tree.getNodeCount(); i++) {
-            if (tree.getNode(i).getChildCount() == 1) {
-                containsEvents = true;
-                break;
-            }
-        }
-
-        if (containsEvents) {
-            convertEventTree(tree);
-        } else {
-            convertBranchingTree(tree);
-        }
+        convertTree(tree);
     }
 
 

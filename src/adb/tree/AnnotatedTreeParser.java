@@ -2,8 +2,6 @@ package adb.tree;
 
 import beast.base.core.Description;
 import beast.base.core.Input;
-import beast.base.core.Log;
-import beast.base.evolution.tree.Node;
 import beast.base.evolution.tree.Tree;
 import beast.base.evolution.tree.TreeParser;
 import beast.base.inference.StateNode;
@@ -13,17 +11,31 @@ import java.io.*;
 import java.util.List;
 
 
-@Description("Class to initialize an AnnotatedTree from newick tree with type metadata")
+/**
+ * Reads the tree from a Newick string, or from one line of a file with several trees (fileName and treeIndex,
+ * counting from 1, trees separated by semicolons). Types are read from the type meta data of every node
+ * (for example 1[&type=0]:0.5); nodes without it have type 0. The type of an internal or single-child node is the
+ * type of the lineage above it.
+ *
+ * If the Newick contains single-child nodes, each of them is an event on the branch below it, and the tree is
+ * converted with convertEventTree. Otherwise, the tree is bifurcating, and convertBranchingTree gives every branch
+ * only its node as event.
+ *
+ * By default (adjustTipHeights) all tips are moved to height 0, as there are no dates. Set it to false to keep
+ * the tip heights as given. The scale input multiplies the internal node heights.
+ */
+@Description("Initialises an AnnotatedTree from a Newick tree with type meta data and optional single-child event nodes.")
 public class AnnotatedTreeParser extends AnnotatedTree implements StateNodeInitialiser {
 
+    public Input<String> newickInput =
+            new Input<>("newick", "tree in newick format");
+
     public Input<String> fileNameInput =
-            new Input<>("fileName", "name of file containing the tree in newick format");
+            new Input<>("fileName", "name of file containing the tree in newick format",
+                    Input.Validate.XOR, newickInput);
 
     public Input<Integer> treeIndexInput =
-            new Input<>("treeIndex", "index of tree in tree file (default 1).", 1);
-
-    public Input<String> newickInput =
-            new Input<>("newick", "tree in newick format"); // TODO: use XOR?
+            new Input<>("treeIndex", "index of tree in tree file, counting from 1 (default 1).", 1);
 
     public Input<Boolean> adjustTipHeightsInput =
             new Input<>("adjustTipHeights", "adjust tip heights in tree? (default true)", true);
@@ -38,63 +50,41 @@ public class AnnotatedTreeParser extends AnnotatedTree implements StateNodeIniti
     @Override
     public void initAndValidate() {
 
-        if (fileNameInput.get() != null) {
-
-            if (newickInput.get() != null) {
-                Log.warning("The provided newick will be overwritten!");
-            }
-
-            // from feast.fileio.TreeFromNewickFile
-            BufferedReader reader;
-            try {
-                reader = new BufferedReader(new FileReader(fileNameInput.get()));
-            } catch (FileNotFoundException e) {
-                throw new RuntimeException("Input file not found.");
-            }
-
-            String line;
-            StringBuilder newickBuilder = new StringBuilder();
-            try {
-                while ((line = reader.readLine()) != null)
-                    newickBuilder.append(line.trim());
-            } catch (IOException e) {
-                throw new RuntimeException("Error reading from input file.");
-            }
-
-            // indexing from 1 up
-            String[] treeStrings = newickBuilder.toString().split(";");
-            if (treeIndexInput.get() > treeStrings.length)
-                throw new IllegalArgumentException("Tree index exceeds number of trees in input file.");
-
-            newickInput.setValue(newickBuilder.toString().split(";")[treeIndexInput.get()-1], this);
-        }
+        String newick = fileNameInput.get() != null
+                ? readTreeFromFile(fileNameInput.get(), treeIndexInput.get())
+                : newickInput.get();
 
         super.initAndValidate();
 
-        // read tree
+        // read tree with TreeParser, which only handles Node, then convert it to AnnotatedNodes
         Tree tree = new TreeParser();
         tree.initByName(
-                "newick", newickInput.get(),
+                "newick", newick,
                 "adjustTipHeights", adjustTipHeightsInput.get(),
                 "scale", scaleInput.get(),
-                "IsLabelledNewick", true);
+                "IsLabelledNewick", true); // tip labels are taken from the Newick, unlike in AnnotatedTree.fromXML
 
-        boolean containsEvents = false;
-        for (int i = 0; i < tree.getNodeCount(); i++) {
-            Node node = tree.getNode(i);
-            if (node.getChildCount() == 1) {
-                containsEvents = true;
-                break;
-            }
-        }
+        convertTree(tree);
+    }
 
-        if (containsEvents) {
-            // tree contains also single-descendant (hidden) nodes
-            convertEventTree(tree);
-        } else {
-            // tree contains only branching nodes and tips
-            convertBranchingTree(tree);
+
+    // adapted from feast.fileio.TreeFromNewickFile
+    static String readTreeFromFile(String fileName, int treeIndex) {
+        StringBuilder newickBuilder = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new FileReader(fileName))) {
+            String line;
+            while ((line = reader.readLine()) != null)
+                newickBuilder.append(line.trim());
+        } catch (IOException e) {
+            throw new RuntimeException("Could not read input file " + fileName + ".", e);
         }
+        String content = newickBuilder.toString();
+
+        String[] treeStrings = content.split(";");
+        if (treeIndex < 1 || treeIndex > treeStrings.length)
+            throw new IllegalArgumentException("Tree index " + treeIndex + " is not between 1 and the number of trees in "
+                    + fileName + " (" + treeStrings.length + ").");
+        return treeStrings[treeIndex - 1];
     }
 
 
