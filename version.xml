@@ -11,7 +11,7 @@
     <provider classname="adb.operators.AnnotatedSubtreeSlide"/>
     <provider classname="adb.operators.AnnotatedWilsonBalding"/>
     <provider classname="adb.operators.EventSampler"/>
-    <provider classname="adb.operators.JointEventSampler"/>
+    <provider classname="adb.operators.UpDownEventSampler"/>
     <provider classname="adb.operators.MatrixDeltaExchangeOperator"/>
     <provider classname="adb.tree.AnnotatedTreeInitialiser"/>
     <provider classname="adb.tree.AnnotatedTreeParser"/>

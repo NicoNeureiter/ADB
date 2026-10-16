@@ -17,8 +17,8 @@ import java.util.function.Function;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Wilson-Balding, exchange and subtree slide on a two-type tree with type changes on several branches:
- * every finite proposal must leave a valid tree. An exchange keeps all type changes on their branches;
+ * Wilson-Balding, exchange, subtree slide and scale on a two-type tree with type changes on several branches:
+ * every finite proposal must leave a valid tree. An exchange and a scale keep all type changes on their branches;
  * a slide can turn a type change into a division (and the other way round), so the count is not fixed there.
  */
 public class AnnotatedTopologyOperatorsTest {
@@ -128,6 +128,42 @@ public class AnnotatedTopologyOperatorsTest {
         // growing again: the reverse map has the inverse Jacobian
         assertEquals(-2 * Math.log(0.25), AnnotatedTreeOperator.scaleEvents(i, 2.5, 4.0), 1e-12);
         assertEquals(3.8, i.getEvent(4).getHeight(), 1e-12);
+    }
+
+    // the general map moves the node as well: the branch [1, 3] goes to [2, 6], so every event height is doubled;
+    // with allEvents every event above the node counts in the Jacobian, otherwise only the type changes
+    @Test
+    public void testScaleEventsMovingNode() {
+        for (boolean allEvents : new boolean[]{true, false}) {
+            AnnotatedNode i = new AnnotatedNode();
+            List<EventNode> events = new ArrayList<>();
+            events.add(new EventNode(0, 1.0));
+            events.add(new EventNode(0, 1.5)); // hidden event, same type
+            events.add(new EventNode(1, 2.0)); // type change
+            events.add(new EventNode(1, 2.5)); // hidden event
+            i.setEvents(events);
+
+            double logJacobian = AnnotatedTreeOperator.scaleEvents(i, 1.0, 3.0, 2.0, 6.0, allEvents);
+
+            double[] expected = {2.0, 3.0, 4.0, 5.0};
+            for (int e = 0; e < expected.length; e++) {
+                assertEquals(expected[e], i.getEvent(e).getHeight(), 1e-12, "allEvents " + allEvents);
+            }
+            assertEquals((allEvents ? 3 : 1) * Math.log(2.0), logJacobian, 1e-12, "allEvents " + allEvents);
+        }
+    }
+
+    // a type change sits at 3.5, just below its parent at 4: scaled down by about a half it must stay on its branch
+    @Test
+    public void testScale() {
+        for (boolean drawEvents : new boolean[]{true, false}) {
+            runProposals(tree -> {
+                AnnotatedScale operator = new AnnotatedScale();
+                operator.initByName("tree", tree, "parameterization", model(), "scaleFactor", 0.5,
+                        "drawEvents", drawEvents, "weight", 1.0);
+                return operator;
+            }, true);
+        }
     }
 
     @Test

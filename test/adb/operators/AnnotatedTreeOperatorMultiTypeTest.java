@@ -105,10 +105,10 @@ public class AnnotatedTreeOperatorMultiTypeTest {
     }
 
     @Test
-    public void testJointEventSampler() {
+    public void testUpDownEventSampler() {
         Randomizer.setSeed(1);
         AnnotatedTreeParser tree = tree();
-        JointEventSampler operator = new JointEventSampler();
+        UpDownEventSampler operator = new UpDownEventSampler();
         operator.initByName("tree", tree, "parameterization", model, "up", lifetime, "scaleFactor", 0.8, "weight", 1.0);
 
         assertTrue(Double.isFinite(operator.proposal()));
@@ -116,15 +116,57 @@ public class AnnotatedTreeOperatorMultiTypeTest {
         assertDoesNotThrow(() -> tree.validate(model));
     }
 
+    // elementWise scales the lifetime of one type j and redraws exactly the branches that carry type j (these are fixed
+    // by the type changes, which the move keeps); the log Hastings ratio is log f plus the old minus new densities
     @Test
-    public void testScale() {
+    public void testUpDownEventSamplerElementWise() {
         Randomizer.setSeed(1);
         AnnotatedTreeParser tree = tree();
-        AnnotatedScale operator = new AnnotatedScale();
-        operator.initByName("tree", tree, "parameterization", model, "scaleFactor", 0.95, "drawEvents", true, "weight", 1.0);
+        UpDownEventSampler operator = new UpDownEventSampler();
+        operator.initByName("tree", tree, "parameterization", model, "up", lifetime, "elementWise", true,
+                "scaleFactor", 0.3, "optimise", false, "weight", 1.0);
+        Node[] nodes = tree.getNodesAsArray();
+        boolean[] typeScaled = new boolean[lifetime.getDimension()];
+        for (int proposal = 0; proposal < 100; proposal++) {
+            Double[] oldLifetimes = lifetime.getValues();
+            double[] oldDensities = new double[nodes.length];
+            List<List<EventNode>> oldEvents = new ArrayList<>();
+            for (int i = 0; i < nodes.length; i++) {
+                oldDensities[i] = operator.getBranchProbability((AnnotatedNode) nodes[i], true);
+                oldEvents.add(((AnnotatedNode) nodes[i]).getEvents());
+            }
 
-        assertTrue(Double.isFinite(operator.proposal()));
-        assertDoesNotThrow(() -> tree.validate(model));
+            double logHR = operator.proposal();
+            if (logHR == Double.NEGATIVE_INFINITY) continue;
+
+            int changed = -1;
+            for (int j = 0; j < oldLifetimes.length; j++) {
+                if (lifetime.getValue(j) != oldLifetimes[j].doubleValue()) {
+                    assertEquals(-1, changed, "only one lifetime changes, proposal " + proposal);
+                    changed = j;
+                }
+            }
+            assertNotEquals(-1, changed, "proposal " + proposal);
+            typeScaled[changed] = true;
+
+            double expected = Math.log(lifetime.getValue(changed) / oldLifetimes[changed]);
+            for (int i = 0; i < nodes.length; i++) {
+                boolean carries = false;
+                for (EventNode event : oldEvents.get(i)) {
+                    carries |= event.getType() == changed;
+                }
+                boolean redrawn = oldEvents.get(i) != ((AnnotatedNode) nodes[i]).getEvents();
+                assertEquals(carries, redrawn, "node " + nodes[i].getNr() + ", type " + changed + ", proposal " + proposal);
+                if (redrawn) {
+                    expected += oldDensities[i] - operator.getBranchProbability((AnnotatedNode) nodes[i], true);
+                }
+            }
+            assertEquals(expected, logHR, 1e-9, "proposal " + proposal);
+            assertDoesNotThrow(() -> tree.validate(model), "proposal " + proposal);
+        }
+        for (int j = 0; j < typeScaled.length; j++) {
+            assertTrue(typeScaled[j], "type " + j + " was scaled");
+        }
     }
 
     private void runProposals(Function<AnnotatedTreeParser, AnnotatedTreeOperator> create) {

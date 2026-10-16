@@ -354,7 +354,7 @@ public class AnnotatedTree extends Tree {
      * violation otherwise. Every node needs its own event first, with the node height, followed by hidden events in
      * strictly ascending order below the parent (below the origin for the root). A type change must go from a
      * direct progenitor to a descendant type, the division at every internal node must be possible,
-     * and with an origin the stem must start with the origin type.
+     * with an origin the stem must start with the origin type, and without one the root has no events above it.
      * Linear in the number of events, intended for tests and assertions rather than for every MCMC step.
      */
     public void validate(Parameterization model) {
@@ -390,6 +390,9 @@ public class AnnotatedTree extends Tree {
         AnnotatedNode root = (AnnotatedNode) getRoot();
         if (model.getOriginTime() != null && root.getInitialType() != model.getOriginType()) {
             throw new IllegalStateException("the stem must start with the origin type " + model.getOriginType());
+        }
+        if (model.getOriginTime() == null && root.getEventCount() > 1) {
+            throw new IllegalStateException("without origin there is no stem, so the root cannot have events above it");
         }
     }
 

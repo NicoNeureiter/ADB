@@ -10,6 +10,9 @@ import beast.base.util.Randomizer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /** Operators that resample events or scale the tree, on a single-type tree. */
@@ -69,8 +72,8 @@ public class AnnotatedTreeOperatorTest {
 
     // lifetime up and sampling down by the same factor leaves their product unchanged
     @Test
-    public void testJointEventSampler() {
-        JointEventSampler operator = new JointEventSampler();
+    public void testUpDownEventSampler() {
+        UpDownEventSampler operator = new UpDownEventSampler();
         operator.initByName("tree", tree, "parameterization", model, "up", lifetime, "down", sampling, "scaleFactor", 0.2, "weight", 1.0);
 
         double logHR = operator.proposal();
@@ -81,33 +84,131 @@ public class AnnotatedTreeOperatorTest {
         assertDoesNotThrow(() -> tree.validate(model));
     }
 
-    // the tree is scaled by f and the lifetime by 1/f
+    // the Bactrian kernel is symmetric on the log scale, so the log Hastings ratio is log f for the scaled lifetime
+    // plus, for every redrawn branch, the density of its old events under the old lifetime minus that of the new ones;
+    // resampleEvents always sets a new event list, so the redrawn branches are the ones whose list was replaced
+    @Test
+    public void testUpDownEventSamplerHastingsRatio() {
+        for (double proportion : new double[]{1.0, 0.5}) {
+            UpDownEventSampler operator = new UpDownEventSampler();
+            operator.initByName("tree", tree, "parameterization", model, "up", lifetime, "proportionBranches", proportion,
+                    "optimise", false, "weight", 1.0);
+            Node[] nodes = tree.getNodesAsArray();
+            for (int proposal = 0; proposal < 20; proposal++) {
+                double oldLifetime = lifetime.getValue();
+                double[] oldDensities = new double[nodes.length];
+                List<List<AnnotatedNode.EventNode>> oldEvents = new ArrayList<>();
+                for (int i = 0; i < nodes.length; i++) {
+                    oldDensities[i] = operator.getBranchProbability((AnnotatedNode) nodes[i], true);
+                    oldEvents.add(((AnnotatedNode) nodes[i]).getEvents());
+                }
+
+                double logHR = operator.proposal();
+
+                double expected = Math.log(lifetime.getValue() / oldLifetime);
+                for (int i = 0; i < nodes.length; i++) {
+                    if (oldEvents.get(i) != ((AnnotatedNode) nodes[i]).getEvents()) {
+                        expected += oldDensities[i] - operator.getBranchProbability((AnnotatedNode) nodes[i], true);
+                    }
+                }
+                assertEquals(expected, logHR, 1e-9, "proportion " + proportion + ", proposal " + proposal);
+            }
+        }
+    }
+
+    @Test
+    public void testUpDownEventSamplerRejectsInvalidInputs() {
+        UpDownEventSampler withoutParameters = new UpDownEventSampler();
+        assertThrows(RuntimeException.class, () -> withoutParameters.initByName("tree", tree, "parameterization", model,
+                "weight", 1.0), "no up or down parameter");
+        for (double proportion : new double[]{0.0, 1.5}) {
+            UpDownEventSampler operator = new UpDownEventSampler();
+            assertThrows(RuntimeException.class, () -> operator.initByName("tree", tree, "parameterization", model,
+                    "up", lifetime, "proportionBranches", proportion, "weight", 1.0), "proportion " + proportion);
+        }
+    }
+
+    // the log scale factor is scaleFactor times a draw from the Bactrian kernel, which has mean 0 and variance 1;
+    // the default scaleFactor is 0.1
+    @Test
+    public void testUpDownEventSamplerScaleDistribution() {
+        UpDownEventSampler operator = new UpDownEventSampler();
+        operator.initByName("tree", tree, "parameterization", model, "up", lifetime, "optimise", false, "weight", 1.0);
+        int draws = 5000;
+        double sum = 0, sumSquares = 0;
+        for (int draw = 0; draw < draws; draw++) {
+            double oldLifetime = lifetime.getValue();
+            operator.proposal();
+            double logF = Math.log(lifetime.getValue() / oldLifetime) / 0.1;
+            sum += logF;
+            sumSquares += logF * logF;
+        }
+        assertEquals(0.0, sum / draws, 0.05);
+        assertEquals(1.0, sumSquares / draws, 0.05);
+    }
+
+    // the tree and the lifetime are scaled by f (the time-scale ridge), a rate by 1/f
     @Test
     public void testScale() {
         double rootHeight = tree.getRoot().getHeight();
+        RealParameter rate = new RealParameter("1.0");
+        rate.setBounds(0.0, Double.POSITIVE_INFINITY);
         AnnotatedScale operator = new AnnotatedScale();
-        operator.initByName("tree", tree, "parameterization", model, "parameterInverse", lifetime, "weight", 1.0, "scaleFactor", 0.95, "drawEvents", true);
+        operator.initByName("tree", tree, "parameterization", model, "parameter", lifetime, "parameterInverse", rate,
+                "scaleFactor", 0.1, "drawEvents", true, "weight", 1.0);
 
         double logHR = operator.proposal();
 
         assertTrue(Double.isFinite(logHR));
-        assertNotEquals(rootHeight, tree.getRoot().getHeight(), 1e-12);
-        assertEquals(rootHeight, tree.getRoot().getHeight() * lifetime.getValue(), 1e-9);
+        double f = tree.getRoot().getHeight() / rootHeight;
+        assertNotEquals(1.0, f, 1e-12);
+        assertEquals(f, lifetime.getValue() / 1.0, 1e-9);
+        assertEquals(1.0 / f, rate.getValue(), 1e-9);
         assertDoesNotThrow(() -> tree.validate(model));
+    }
+
+    private Parameterization noOriginModel() {
+        Parameterization noOrigin = new Parameterization();
+        noOrigin.initByName("nTypes", 1, "lifetime", lifetime, "shape", shape, "death", death, "sampling", sampling);
+        return noOrigin;
+    }
+
+    // without origin and without redraws the move is deterministic given f, and the Bactrian kernel is symmetric on
+    // the log scale: the log Hastings ratio is log f for every internal node and every event above a node
+    // (without origin the root has no stem, so the event of the single-child node on top of the Newick root is removed)
+    @Test
+    public void testScaleHastingsRatioWithoutRedraws() {
+        ((AnnotatedNode) tree.getRoot()).clearEvents();
+        AnnotatedScale operator = new AnnotatedScale();
+        operator.initByName("tree", tree, "parameterization", noOriginModel(), "drawEvents", false, "optimise", false,
+                "weight", 1.0);
+        int scaled = 0;
+        for (Node node : tree.getNodesAsArray()) {
+            if (!node.isLeaf()) scaled++;
+            scaled += ((AnnotatedNode) node).getEventCount() - 1;
+        }
+        for (int proposal = 0; proposal < 20; proposal++) {
+            double oldRootHeight = tree.getRoot().getHeight();
+            double logHR = operator.proposal();
+            assertEquals(scaled * Math.log(tree.getRoot().getHeight() / oldRootHeight), logHR, 1e-9, "proposal " + proposal);
+        }
+    }
+
+    // the leaves are data: a scale move must not change them, so it requires them at height 0
+    @Test
+    public void testScaleRequiresLeavesAtZero() {
+        AnnotatedTreeParser dated = new AnnotatedTreeParser();
+        dated.initByName("newick", "((1:1,2:2):1,3:3);", "adjustTipHeights", false);
+        AnnotatedScale operator = new AnnotatedScale();
+        assertThrows(RuntimeException.class, () -> operator.initByName("tree", dated, "parameterization", model,
+                "weight", 1.0));
     }
 
     // without an origin, the root event must stay in sync with the root height
     @Test
     public void testRootEventFollowsRootHeight() {
-        Parameterization noOrigin = new Parameterization();
-        noOrigin.initByName("nTypes", 1,
-                "lifetime", lifetime,
-                "shape", shape,
-                "death", death,
-                "sampling", sampling);
-
         EventSampler operator = new EventSampler();
-        operator.initByName("tree", tree, "parameterization", noOrigin, "weight", 1.0);
+        operator.initByName("tree", tree, "parameterization", noOriginModel(), "weight", 1.0);
 
         AnnotatedNode root = (AnnotatedNode) tree.getRoot();
         root.setHeight(root.getHeight() * 1.1);

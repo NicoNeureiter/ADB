@@ -10,12 +10,14 @@ import beast.base.core.Input;
 import beast.base.evolution.operator.TreeOperator;
 import beast.base.evolution.tree.Node;
 import beast.base.evolution.tree.Tree;
+import beast.base.inference.parameter.RealParameter;
 import beast.base.util.Randomizer;
 import org.apache.commons.math.special.Gamma;
 import org.apache.commons.math3.distribution.GammaDistribution;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 
 /**
@@ -33,7 +35,7 @@ import java.util.Arrays;
 public abstract class AnnotatedTreeOperator extends TreeOperator {
 
     public Input<Parameterization> parameterizationInput =
-            new Input<>("parameterization", "ADB parameterization", Input.Validate.OPTIONAL);
+            new Input<>("parameterization", "ADB parameterization", Input.Validate.REQUIRED);
 
     protected Parameterization parameterization;
 
@@ -286,18 +288,49 @@ public abstract class AnnotatedTreeOperator extends TreeOperator {
      * It is 0 for a single type, and the branch is then fully described by resampleEvents.
      */
     protected static double scaleEvents(AnnotatedNode i, double oldTop, double newTop) {
-        double base = i.getHeight();
-        double scale = (newTop - base) / (oldTop - base);
+        return scaleEvents(i, i.getHeight(), oldTop, i.getHeight(), newTop, false);
+    }
 
-        int typeChanges = 0;
+    /**
+     * Maps the events above node i affinely from the branch [oldBase, oldTop] onto [newBase, newTop], where newBase
+     * is the new height of i, so the order of the events and their branch are kept. Returns the log Jacobian
+     * m * log(scale) of this deterministic map, where m counts the type changes, or all events above the node if
+     * allEvents is true (when none of them is resampled afterwards).
+     */
+    protected static double scaleEvents(AnnotatedNode i, double oldBase, double oldTop, double newBase, double newTop,
+                                        boolean allEvents) {
+        double scale = (newTop - newBase) / (oldTop - oldBase);
+        i.getEvent(0).setHeight(newBase);
+
+        int mapped = 0;
         for (int e = 1; e < i.getEventCount(); e++) {
             EventNode event = i.getEvent(e);
-            event.setHeight(base + (event.getHeight() - base) * scale);
-            if (event.getType() != i.getEvent(e - 1).getType()) {
-                typeChanges++;
+            event.setHeight(newBase + (event.getHeight() - oldBase) * scale);
+            if (allEvents || event.getType() != i.getEvent(e - 1).getType()) {
+                mapped++;
             }
         }
-        return typeChanges == 0 ? 0.0 : typeChanges * Math.log(scale);
+        return mapped == 0 ? 0.0 : mapped * Math.log(scale);
+    }
+
+    /**
+     * Multiplies entry index of every parameter by factor, or every entry if index is -1. Returns the share of the
+     * log Hastings ratio of a scale move with a kernel symmetric on the log scale, log(factor) per scaled entry,
+     * or minus infinity if a new value is outside the bounds of its parameter.
+     */
+    protected static double scaleParameters(List<RealParameter> parameters, int index, double factor) {
+        int count = 0;
+        for (RealParameter param : parameters) {
+            int from = index < 0 ? 0 : index;
+            int to = index < 0 ? param.getDimension() : index + 1;
+            for (int i = from; i < to; i++) {
+                double newValue = param.getValue(i) * factor;
+                if (newValue < param.getLower() || newValue > param.getUpper()) return Double.NEGATIVE_INFINITY;
+                param.setValue(i, newValue);
+                count++;
+            }
+        }
+        return count * Math.log(factor);
     }
 
 }

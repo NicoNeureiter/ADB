@@ -1,6 +1,7 @@
 package adb.operators;
 
 import adb.tree.AnnotatedNode;
+import beast.base.core.Description;
 import beast.base.core.Input;
 import beast.base.evolution.tree.Node;
 import beast.base.evolution.tree.Tree;
@@ -9,7 +10,13 @@ import beast.base.util.Randomizer;
 
 import java.text.DecimalFormat;
 
-
+/**
+ * Each branch is chosen independently with probability proportionBranches, and its hidden events are redrawn with
+ * resampleEvents. The node heights and the type changes stay fixed, so the move works for any number of types.
+ * If drawEventCount is false, the number of hidden events per type segment is kept,
+ * except on the segment of a leaf sampled at time 0, which is always drawn exactly from the lifetime distribution.
+ */
+@Description("Redraws the hidden events on a random subset of branches of an annotated tree, keeping the nodes and type changes fixed")
 public class EventSampler extends AnnotatedTreeOperator {
 
     public Input<Boolean> drawEventCountInput = new Input<>("drawEventCount",
@@ -29,6 +36,9 @@ public class EventSampler extends AnnotatedTreeOperator {
         super.initAndValidate();
         drawEventCount = drawEventCountInput.get();
         proportionBranches = proportionBranchesInput.get();
+        if (!(proportionBranches > 0.0 && proportionBranches <= 1.0)) {
+            throw new IllegalArgumentException("proportionBranches must be in (0, 1], but is " + proportionBranches);
+        }
     }
 
 
@@ -40,7 +50,6 @@ public class EventSampler extends AnnotatedTreeOperator {
         double logHR = 0;
 
         double u;
-        // TODO: extend to multi-type version
         for (Node node : tree.getNodesAsArray()) {
             u = Randomizer.nextDouble();
             if (u < proportionBranches) {
@@ -54,7 +63,7 @@ public class EventSampler extends AnnotatedTreeOperator {
     }
 
     /**
-     * tune branch proportion on logit scale
+     * Tune branch proportion on logit scale
      */
     @Override
     public void optimize(double logAlpha) {

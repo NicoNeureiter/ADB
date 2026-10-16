@@ -23,7 +23,7 @@ public class TreePlayground {
     static int TREE_INDEX = 1;           // index in the file, counting from 1
     static boolean INITIALISE = false;   // true: input is tip-typed or untyped, draw ancestral types and events
     static boolean LIKELIHOOD = true;   // true: also print the ADB log-likelihood before and after each move (N_MOVES = 0: only compute it)
-    static String MOVE = "exchange";     // eventSampler | wilsonBalding | exchange | subtreeSlide | scale | jointEventSampler
+    static String MOVE = "exchange";     // eventSampler | wilsonBalding | exchange | subtreeSlide | scale | upDownEventSampler
     static int N_MOVES = 1;
     static long SEED = 1;                // first seed to try
     static int MAX_TRIES = 100;          // seeds to try per move if rejected
@@ -66,10 +66,10 @@ public class TreePlayground {
                 break;
             case "scale":
                 op = new AnnotatedScale();
-                op.initByName("tree", tree, "parameterization", model, "weight", 1.0, "scaleFactor", 0.75);
+                op.initByName("tree", tree, "parameterization", model, "weight", 1.0, "scaleFactor", 0.1);
                 break;
-            case "jointEventSampler":
-                op = new JointEventSampler();
+            case "upDownEventSampler":
+                op = new UpDownEventSampler();
                 op.initByName("tree", tree, "parameterization", model, "weight", 1.0,
                         "up", lifetime, "proportionBranches", 1.0);
                 break;
@@ -135,6 +135,6 @@ public class TreePlayground {
             validate(tree, model);
             if (LIKELIHOOD) System.out.println("log-likelihood = " + logLikelihood(tree, model));
         }
-        if (MOVE.equals("jointEventSampler")) System.out.println("lifetime = " + lifetime);
+        if (MOVE.equals("upDownEventSampler")) System.out.println("lifetime = " + lifetime);
     }
 }

@@ -146,7 +146,7 @@ public class AnnotatedTreeLikelihoodTest {
     public void testScale() {
         assertIncrementalMatchesFull(tree -> {
             AnnotatedScale operator = new AnnotatedScale();
-            operator.initByName("tree", tree, "parameterization", model(), "scaleFactor", 0.9, "weight", 1.0);
+            operator.initByName("tree", tree, "parameterization", model(), "scaleFactor", 0.1, "weight", 1.0);
             return operator;
         }, true);
     }

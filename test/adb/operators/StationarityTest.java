@@ -141,10 +141,18 @@ public class StationarityTest {
             }
         }
 
+        System.out.printf("%nproposals: %d, valid %.1f%%%n", samples.proposals,
+                100.0 * samples.validProposals / samples.proposals);
+        return report(config, operatorName, names, sum, sumSquares, nTrees, STEPS, samples.accepted / samples.proposals);
+    }
+
+    /** Prints the z-scores of the mean paired differences, given their sums and sums of squares over the trees. */
+    static Result report(String config, String operatorName, List<String> names, double[] sum, double[] sumSquares,
+                         int nTrees, int steps, double acceptance) {
+        int nStats = names.size();
         double[] z = new double[nStats];
-        System.out.printf("%n== %s, %s: %d trees, %d MH steps each ==%n", operatorName, config, nTrees, STEPS);
-        System.out.printf("proposals: %d, valid %.1f%%, accepted %.1f%%%n", samples.proposals,
-                100.0 * samples.validProposals / samples.proposals, 100.0 * samples.accepted / samples.proposals);
+        System.out.printf("== %s, %s: %d trees, %d MH steps each, accepted %.1f%% ==%n", operatorName, config, nTrees,
+                steps, 100.0 * acceptance);
         System.out.printf("%-26s %12s %10s %8s%n", "statistic", "mean diff", "SE", "z");
         double largest = 0;
         String largestName = "";
@@ -160,7 +168,6 @@ public class StationarityTest {
                 largestName = names.get(s);
             }
         }
-        double acceptance = (double) samples.accepted / samples.proposals;
         System.out.printf("largest |z| = %.2f (%s), limit %.1f -> %s%n", largest, largestName, MAX_Z,
                 largest < MAX_Z && acceptance >= MIN_ACCEPTANCE ? "PASS" : "FAIL");
         return new Result(names, z, acceptance);
@@ -204,6 +211,13 @@ public class StationarityTest {
     static Operator subtreeSlide(ExactTreeSamples samples) {
         AnnotatedSubtreeSlide operator = new AnnotatedSubtreeSlide();
         operator.initByName("tree", samples.tree, "parameterization", samples.model, "size", 3, "weight", 1.0);
+        return operator;
+    }
+
+    static Operator scale(ExactTreeSamples samples, boolean drawEvents) {
+        AnnotatedScale operator = new AnnotatedScale();
+        operator.initByName("tree", samples.tree, "parameterization", samples.model, "scaleFactor", 0.1,
+                "drawEvents", drawEvents, "optimise", false, "weight", 1.0);
         return operator;
     }
 
@@ -306,5 +320,35 @@ public class StationarityTest {
     @Test
     public void testSubtreeSlideThreeTypes() {
         assertStationary(stationarity(THREE, "subtree slide", StationarityTest::subtreeSlide));
+    }
+
+    @Test
+    public void testScaleOneType() {
+        assertStationary(stationarity(ONE, "scale", samples -> scale(samples, false)));
+    }
+
+    @Test
+    public void testScaleTwoTypes() {
+        assertStationary(stationarity(TWO, "scale", samples -> scale(samples, false)));
+    }
+
+    @Test
+    public void testScaleThreeTypes() {
+        assertStationary(stationarity(THREE, "scale", samples -> scale(samples, false)));
+    }
+
+    @Test
+    public void testScaleDrawEventsOneType() {
+        assertStationary(stationarity(ONE, "scale, drawEvents", samples -> scale(samples, true)));
+    }
+
+    @Test
+    public void testScaleDrawEventsTwoTypes() {
+        assertStationary(stationarity(TWO, "scale, drawEvents", samples -> scale(samples, true)));
+    }
+
+    @Test
+    public void testScaleDrawEventsThreeTypes() {
+        assertStationary(stationarity(THREE, "scale, drawEvents", samples -> scale(samples, true)));
     }
 }

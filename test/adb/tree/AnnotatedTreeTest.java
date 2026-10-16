@@ -239,5 +239,15 @@ public class AnnotatedTreeTest {
         // the stem starts with the origin type 0, but the root is of type 1
         AnnotatedTreeParser wrongStem = parse("(1[&type=1]:1.0,2[&type=1]:1.0)[&type=1]:1.0;");
         assertThrows(IllegalStateException.class, () -> wrongStem.validate(model));
+
+        // without origin there is no stem: an event above the root (from the single-child node on top) is not allowed
+        Parameterization noOrigin = new Parameterization();
+        noOrigin.initByName("nTypes", 2, "lifetime", new RealParameter("1 1"), "shape", new IntegerParameter("5 5"),
+                "death", new RealParameter("0.1 0.1"), "symTransitions", new RealParameter("0.5 0 0 1"),
+                "asymTransitions", new RealParameter("0 0.5 0 0"), "sampling", new RealParameter("0.5 0.5"));
+        AnnotatedTreeParser stem = parse("(((1[&type=1]:0.4)[&type=0]:0.4,2[&type=0]:0.8)[&type=0]:1.0)[&type=0]:0.5;");
+        assertThrows(IllegalStateException.class, () -> stem.validate(noOrigin));
+        ((AnnotatedNode) stem.getRoot()).clearEvents();
+        assertDoesNotThrow(() -> stem.validate(noOrigin));
     }
 }
