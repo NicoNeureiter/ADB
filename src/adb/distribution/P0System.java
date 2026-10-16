@@ -11,6 +11,8 @@ import java.util.stream.IntStream;
  * alive at time t before the present has no sampled descendants.
  * The equations are solved by Picard iteration on a uniform time grid, using FFT convolution
  * with the lifetime densities.
+ * The grid has the points dx, 2dx, ..., up to the origin time, so it does not contain time 0, where
+ * P0_i(0) = 1 - rho_i for the sampling probability rho_i (that value is added when P0 is interpolated).
  * The solution is cached and only recomputed when the parameterization changes.
  */
 public class P0System {
@@ -93,7 +95,7 @@ public class P0System {
                 double[] I = Utils.convolveFFT(distributions[i].getTransformedPDF(), y, nSteps, timeStep);
                 // sum
                 for (int w = 0; w < nSteps; w++) {
-                    Xn[i][w] = X0[i][w] + (1 - d[i]) * I[w];
+                    Xn[i][w] = Math.min(1.0, X0[i][w] + (1 - d[i]) * I[w]); // keep bounds (cf. multiple types)
                 }
 
                 // add regularization (enforce monotonicity, cf. Theorem 2 in Jones, 2011)

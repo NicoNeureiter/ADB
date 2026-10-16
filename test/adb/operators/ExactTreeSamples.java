@@ -20,7 +20,7 @@ import java.util.function.Consumer;
 
 /**
  * Exact draws from the ADB density, for the stationarity and flow tests of the tree operators.
- * A configuration is a pair of files in test_data made by scripts/simulate_test_trees.R:
+ * A configuration is a pair of files in test_data made by scripts/simulate_operator_test_trees.R:
  * the trees, one Newick string per line, and a text file with the parameters of the model,
  * which are read from there so that the model always matches the trees.
  *
@@ -58,7 +58,7 @@ class ExactTreeSamples {
         File trees = new File(DIRECTORY + config + ".newick");
         File parameters = new File(DIRECTORY + config + ".txt");
         Assumptions.assumeTrue(trees.exists() && parameters.exists(),
-                config + " is missing in test_data, run scripts/simulate_test_trees.R");
+                config + " is missing in test_data, run scripts/simulate_operator_test_trees.R");
         try {
             newicks = Files.readAllLines(trees.toPath());
             model = readModel(Files.readAllLines(parameters.toPath()));

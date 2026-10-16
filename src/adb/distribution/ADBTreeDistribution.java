@@ -28,7 +28,28 @@ import static adb.tree.AnnotatedNode.getTypeOf;
 import static org.apache.commons.math3.special.Gamma.logGamma;
 
 
-@Description("Likelihood of a tree under ADB model.")
+/**
+ * The age-dependent multi-type binary branching process:
+ * a lineage of type i lives for a gamma-distributed time (mean lifetime l, shape k), then dies with probability d or
+ * divides into two daughters whose types follow the symmetric and asymmetric transition probabilities.
+ * At time 0 each lineage of type i is sampled with probability rho. The process starts at the origin time and type.
+ *
+ * The log density includes the tree factor 2^(n-1)/n! for n tips. Heights are measured backwards from the present.
+ * With conditionOnOrigin, the density is conditioned on at least one sampled descendant of the origin, otherwise on
+ * the root.
+ *
+ * For an AnnotatedTree, the hidden division events and type changes are given, and the density is a product of gamma
+ * segment densities and event terms (the first event of a branch is the node itself). For any other tree, the hidden
+ * events are integrated out: P1 is used on tip branches, and an internal branch density is solved by Picard iteration
+ * with FFT, or by a series with approx (one type, integer shape). P0 and P1 are solved on a uniform grid of nSteps
+ * points (a power of 2) up to the origin time, and only recomputed when a parameter changes.
+ *
+ * Limits (work in progress): with conditionOnOrigin false, the grid and the conditioning use the initial root height.
+ * For annotated trees the stem type is not enforced to be the origin type. Dated tips are not supported,
+ * and useAnalyticalBDSolution is not implemented.
+ */
+@Description("Probability of a tree under the age-dependent multi-type branching process, either with the hidden " +
+        "division events given (annotated tree) or integrated out (other trees).")
 public class ADBTreeDistribution extends SpeciesTreeDistribution {
 
     public Input<Parameterization> parameterizationInput =
@@ -36,17 +57,17 @@ public class ADBTreeDistribution extends SpeciesTreeDistribution {
 
     // computing options
     public Input<Integer> maxIterationsInput =
-            new Input<>("maxIterations", "maximum number of iterations for numerical integration",100);
+            new Input<>("maxIterations", "maximum number of iterations of the fixed-point iteration for P0, P1 and the branch densities (default 100)",100);
     public Input<Double> toleranceInput =
-            new Input<>("tolerance", "tolerance for numerical integration",1e-12);
+            new Input<>("tolerance", "stopping tolerance of the fixed-point iteration (default 1e-12)",1e-12);
     public Input<Integer> nStepsInput =
-            new Input<>("nSteps", "number of time steps for FFT", (int)Math.pow(2, 14));
+            new Input<>("nSteps", "number of time steps of the grid between 0 and the origin time, must be a power of 2 (default 2^12)", (int)Math.pow(2, 12));
     public Input<Boolean> conditionOnOriginInput =
-            new Input<>("conditionOnOrigin", "condition on time since origin otherwise on root height (default true)", true);
+            new Input<>("conditionOnOrigin", "condition on the origin time and type, otherwise on the root height (default true)", true);
     public Input<Boolean> approxInput =
-            new Input<>("approx", "approximate branch probabilities (default false)", false);
+            new Input<>("approx", "approximate the branch densities by a series, only for one type and an integer shape (default false)", false);
     public Input<Boolean> useAnalyticalBDSolutionInput =
-            new Input<>("useAnalyticalBDSolution", "use analytical solution if shape is 1 (default false)", false);
+            new Input<>("useAnalyticalBDSolution", "use the analytical birth-death solution if the shape is 1 (default false)", false);
 
 
     Parameterization parameterization;
@@ -127,7 +148,7 @@ public class ADBTreeDistribution extends SpeciesTreeDistribution {
 
         // check that step size is a power of 2 (required for FFT)
         if (!Utils.isPowerOfTwo(nSteps)) {
-            throw new IllegalArgumentException("stepSize must be a power of 2!");
+            throw new IllegalArgumentException("nSteps must be a power of 2!");
         }
 
         // create time array for computation
@@ -194,7 +215,7 @@ public class ADBTreeDistribution extends SpeciesTreeDistribution {
 
         // stop if extinction is certain
         double[][] P0 = P0System.getP0();
-        if (P0[originType][nSteps - 1] == 1.0) {
+        if (P0[originType][nSteps - 1] >= 1.0) {
             return Double.NEGATIVE_INFINITY;
         }
 

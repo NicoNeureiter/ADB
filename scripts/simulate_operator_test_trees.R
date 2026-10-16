@@ -1,6 +1,6 @@
 # Simulates annotated trees from the ADB density for the stationarity and flow tests
 #
-# Usage (from the repository root): Rscript scripts/simulate_test_trees.R [n_trees] [config ...]
+# Usage (from the repository root): Rscript scripts/simulate_operator_test_trees.R [n_trees] [config ...]
 #
 # Per configuration, trees are simulated with a fixed origin, hidden divisions are kept (collapse = FALSE),
 # and only trees with min_tips <= n <= max_tips tips are kept, in which every type occurs among the tips.

@@ -1,223 +1,334 @@
 package adb.distribution;
 
 import adb.tree.AnnotatedTreeParser;
-import bdmmprime.distribution.BirthDeathMigrationDistribution;
-import bdmmprime.parameterization.*;
 import beast.base.evolution.tree.Tree;
 import beast.base.evolution.tree.TreeParser;
 import beast.base.inference.parameter.IntegerParameter;
 import beast.base.inference.parameter.RealParameter;
-import feast.fileio.TreeFromNewickFile;
+import org.apache.commons.math3.distribution.GammaDistribution;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
+
+import static adb.distribution.ReferenceModels.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 
+/**
+ * Checks of the tree density of ADBTreeDistribution:
+ * the annotated density against a hand-computed history,
+ * the annotated density summed over all hidden histories against the integrated density,
+ * the series approximation against the integrated density,
+ * and the cases in which the density is zero or the input is rejected.
+ */
 public class ADBTreeDistributionTest {
 
-    // test model parameters and settings
-    @Test
-    public void testSingleType() throws Exception {
-        Parameterization model = new Parameterization();
-        model.initByName("nTypes", 1,
-                "lifetime", new RealParameter("5"),
-                "shape", new IntegerParameter("5"),
-                "death", new RealParameter("0.1"),
-                "sampling", new RealParameter("0.1"),
-                "originTime", 15.0);
+    private static final String FOUR_TIP_TREE = "((D:5.0,C:5.0):6.0,(A:8.0,B:8.0):3.0):0.0;";
 
-        Tree tree = new TreeParser("((D:5.0,C:5.0):6.0,(A:8.0,B:8.0):3.0):0.0;", false);
 
+    private ADBTreeDistribution distribution(Tree tree, Parameterization model, boolean approx, int nSteps) {
         ADBTreeDistribution distribution = new ADBTreeDistribution();
         distribution.initByName("tree", tree,
                 "parameterization", model,
-                "approx", true,
-                "conditionOnOrigin", true);
-
-        double logL = distribution.calculateTreeLogLikelihood(tree);
-        System.out.println(logL);
-    }
-
-    @Test
-    public void testMultiType() throws Exception {
-
-        // define tree
-        Tree tree = new TreeFromNewickFile();
-        tree.initByName("fileName", "/Users/jpilarski/Projects/mtADB/profiling/tree_1_size.newick", "IsLabelledNewick", true, "adjustTipHeights", true);
-
-        // initialize and set parameters
-        Parameterization model = new Parameterization();
-        model.initByName("nTypes", 2,
-                "lifetime", new RealParameter("2 5"),
-                "shape", new IntegerParameter("1 1"),
-                "death", new RealParameter("0.1 0.2"),
-                "symTransitions", new RealParameter("0.2 0 0 0.6"),
-                "asymTransitions", new RealParameter("0 0.8 0.4 0"),
-                "sampling", new RealParameter("0.5 0.5"),
-                "originTime", 20.0,
-                "originType", 0);
-
-        // calculate tree log-likelihood
-        ADBTreeDistribution distribution = new ADBTreeDistribution();
-        distribution.initByName("tree", tree,
-                "parameterization", model,
-                "approx", false,
-                "conditionOnOrigin", true);
-
-        double logL = distribution.calculateTreeLogLikelihood(tree);
-        System.out.println(logL);
-    }
-
-
-    @Test
-    public void testAnnotated() throws Exception {
-
-        // simulated tree (branch-typed)
-        String newick = "((((1[&type=0]:1.378074977,(11[&type=1]:0.9265429956)[&type=1]:0.4515319812)[&type=1]:0.5929298741)[&type=0]:2.088429726,(((3[&type=0]:0.4513672607)[&type=1]:1.262419189,((6[&type=0]:0.05632331623)[&type=1]:0.7255498933)[&type=1]:0.9319132401)[&type=1]:0.2056271944)[&type=0]:2.140020933)[&type=0]:2.073580344)[&type=0]:1.866985079;";
-        AnnotatedTreeParser tree = new AnnotatedTreeParser();
-        tree.initByName("newick", newick);
-
-        // initialize and set parameters
-        Parameterization model = new Parameterization();
-        model.initByName("nTypes", 2,
-                "lifetime", new RealParameter("2 1"),
-                "shape", new IntegerParameter("100 5"),
-                "death", new RealParameter("0.1 0.2"),
-                "symTransitions", new RealParameter("0.3 0.3 0.1 0.5"),
-                "asymTransitions", new RealParameter("0 0.4 0.4 0"),
-                "sampling", new RealParameter("0.5 0.5"),
-                "originTime", 8.0,
-                "originType", 0);
-
-        // calculate tree log-likelihood
-        ADBTreeDistribution distribution = new ADBTreeDistribution();
-        distribution.initByName("tree", tree,
-                "parameterization", model,
-                "approx", false,
-                "conditionOnOrigin", true);
-
-        double logL = distribution.calculateTreeLogLikelihood(tree);
-        System.out.println(logL);
-    }
-
-
-
-    // test model parameters and settings
-    @Test
-    public void testSingleTypeAnnotated() throws Exception {
-
-        Tree tree = new TreeParser("((1:43.08956348,17:43.08956348):7.807559093,(8:17.26568023,10:17.26568023):33.63144235):8.415882985;", true);
-        AnnotatedTreeParser atree = new AnnotatedTreeParser();
-        atree.init("((((((1:6.631381528):8.284092381):12.39196391):15.78212566,((((17:2.640722598):8.177954073):8.816746453):11.94528728):11.50885308):7.807559093,((((8:5.916107016):11.34957321,(10:6.247866922):11.0178133):11.55337734):10.62974778):11.44831723):10.68699444):8.415882985;");
-
-        RealParameter lifetime = new RealParameter("10");
-        Parameterization model = new Parameterization();
-        model.initByName("nTypes", 1,
-                "lifetime", lifetime,
-                "shape", new IntegerParameter("20"),
-                "death", new RealParameter("0.1"),
-                "sampling", new RealParameter("0.1"),
-                "originTime", 70.0);
-
-        ADBTreeDistribution distribution = new ADBTreeDistribution();
-        distribution.initByName("tree", tree,
-                "parameterization", model,
-                "approx", false,
-                "conditionOnOrigin", true);
-
-        double start = 5.0;
-        double end = 15.0;
-        double step = 0.1;
-        int nsteps = (int) ((end - start) / step);
-        double[] lifetimes = new double[nsteps];
-        for (int i = 0; i < nsteps; i++) {
-            lifetimes[i] = start + i * step;
-        }
-
-        double[] logL = new double[nsteps];
-        double[] alogL = new double[nsteps];
-        for (int i = 0; i < nsteps; i++) {
-            lifetime.setValue(0, lifetimes[i]);
-            logL[i] = distribution.calculateTreeLogLikelihood(tree);
-            alogL[i] = distribution.calculateTreeLogLikelihood(atree);
-            System.out.println(lifetimes[i] + "," + logL[i] + "," + alogL[i]);
-        }
-    }
-
-
-    // test implementation
-    @Test
-    public void testLogLik() throws Exception {
-        //String newick = "(((((8:1.042878276,9:1.042878276):2.428071746,(10:1.605989942,11:1.605989942):1.864960079):2.147914398,((12:1.454267899,13:1.454267899):2.628257941,((23:0.7895098622,24:0.7895098622):1.79507767,(25:0.3171597446,26:0.3171597446):2.267427788):1.497938308):1.53633858):1.427887739,(((14:0.7384464536,15:0.7384464536):1.928913114,(16:0.9098809681,17:0.9098809681):1.757478599):2.656727469,((18:1.809407549,(27:0.8591649911,28:0.8591649911):0.9502425579):1.642277473,(19:1.584707927,20:1.584707927):1.866977095):1.872402015):1.722665122):1.419797687,(((1:0.1045444698,2:0.1045444698):2.526361055,(3:0.1909505687,4:0.1909505687):2.439954956):3.671445798,((5:2.138220157,6:2.138220157):1.764266795,(7:1.489758896,(21:0.1898588811,22:0.1898588811):1.299900015):2.412728056):2.399864371):2.164198522):1.533450155;";
-        String newick = "(((((((25[&type=3]:1.263049661,(50[&type=3]:0.1769602448,51[&type=1]:0.1769602448)[&type=1]:1.086089416)[&type=1]:0.9354985153,((((130[&type=0]:0.307192334,131[&type=0]:0.307192334)[&type=0]:0.3983698071,(132[&type=0]:0.1787420183,133[&type=1]:0.1787420183)[&type=0]:0.5268201229)[&type=0]:0.4553395398,(85[&type=2]:0.00802907709,86[&type=1]:0.00802907709)[&type=1]:1.152872604)[&type=0]:0.5232668409,(((134[&type=0]:0.1837792,135[&type=0]:0.1837792)[&type=0]:0.497743641,(136[&type=1]:0.1699922126,137[&type=0]:0.1699922126)[&type=0]:0.5115306283)[&type=0]:0.5133101256,((138[&type=1]:0.1568728848,139[&type=0]:0.1568728848)[&type=0]:0.5293152641,(140[&type=0]:0.1121239178,141[&type=0]:0.1121239178)[&type=0]:0.5740642311)[&type=0]:0.5086448176)[&type=0]:0.4893355554)[&type=0]:0.5143796544)[&type=0]:0.4907869725,((26[&type=2]:1.227181268,(52[&type=2]:0.4205992585,53[&type=1]:0.4205992585)[&type=1]:0.8065820094)[&type=1]:0.9652046198,((((142[&type=1]:0.2835386607,143[&type=0]:0.2835386607)[&type=0]:0.4577662779,(144[&type=0]:0.2549424794,145[&type=1]:0.2549424794)[&type=0]:0.4863624591)[&type=0]:0.4414204198,(87[&type=3]:0.08592096839,88[&type=1]:0.08592096839)[&type=1]:1.09680439)[&type=0]:0.502252209,((89[&type=2]:0.1522401783,90[&type=1]:0.1522401783)[&type=1]:0.9920620618,((146[&type=1]:0.09467037534,147[&type=0]:0.09467037534)[&type=0]:0.5613810019,(148[&type=0]:0.1271406477,149[&type=0]:0.1271406477)[&type=0]:0.5289107295)[&type=0]:0.4882508629)[&type=0]:0.5406753271)[&type=0]:0.5074083205)[&type=0]:0.496949261)[&type=0]:0.4354935528,((9[&type=2]:1.72762098,(27[&type=2]:0.7627256207,28[&type=1]:0.7627256207)[&type=1]:0.9648953594)[&type=1]:0.8786446077,((29[&type=2]:1.114593564,(54[&type=2]:0.1448371847,55[&type=1]:0.1448371847)[&type=1]:0.9697563792)[&type=1]:0.9847114843,((56[&type=1]:0.2734576949,57[&type=3]:0.2734576949)[&type=1]:1.328533047,((91[&type=1]:0.6892282435,(150[&type=0]:0.1773799819,151[&type=1]:0.1773799819)[&type=0]:0.5118482616)[&type=0]:0.4879306727,((152[&type=1]:0.2022465482,153[&type=0]:0.2022465482)[&type=0]:0.4490958256,(154[&type=0]:0.1970320134,155[&type=1]:0.1970320134)[&type=0]:0.4543103604)[&type=0]:0.5258165424)[&type=0]:0.4248318254)[&type=0]:0.4973143067)[&type=0]:0.5069605395)[&type=0]:0.5185631138)[&type=0]:0.3931733095,(((10[&type=2]:1.523164386,(30[&type=1]:0.4177042376,31[&type=2]:0.4177042376)[&type=1]:1.105460148)[&type=1]:1.025263302,(((58[&type=1]:0.6701944024,59[&type=1]:0.6701944024)[&type=1]:0.9536510664,((92[&type=1]:0.5594536066,(156[&type=0]:0.1025489927,157[&type=0]:0.1025489927)[&type=0]:0.4569046138)[&type=0]:0.5106866291,(93[&type=1]:0.002162974643,94[&type=2]:0.002162974643)[&type=1]:1.067977261)[&type=0]:0.5537052331)[&type=0]:0.4238206533,((60[&type=2]:0.7442277622,61[&type=1]:0.7442277622)[&type=1]:0.85251864,((95[&type=1]:0.6186836386,(158[&type=0]:0.03850884619,159[&type=0]:0.03850884619)[&type=0]:0.5801747924)[&type=0]:0.4693542836,(96[&type=1]:0.3253517382,97[&type=3]:0.3253517382)[&type=1]:0.762686184)[&type=0]:0.5087084801)[&type=0]:0.4509197199)[&type=0]:0.500761566)[&type=0]:0.4923866848,(((32[&type=1]:0.7005475011,33[&type=1]:0.7005475011)[&type=1]:0.9820100999,(34[&type=1]:0.6828937046,35[&type=2]:0.6828937046)[&type=1]:0.9996638964)[&type=1]:0.8926218018,((((98[&type=1]:0.5861728886,(160[&type=0]:0.03717090593,161[&type=1]:0.03717090593)[&type=0]:0.5490019827)[&type=0]:0.4572957862,(99[&type=0]:0.4960895125,(162[&type=0]:0.002414062174,163[&type=0]:0.002414062174)[&type=0]:0.4936754504)[&type=0]:0.5473791622)[&type=0]:0.5953500582,(62[&type=2]:0.4978985648,63[&type=1]:0.4978985648)[&type=1]:1.140920168)[&type=0]:0.4447864418,((((164[&type=1]:0.2396666009,165[&type=0]:0.2396666009)[&type=0]:0.4794129696,(166[&type=0]:0.2713908179,167[&type=0]:0.2713908179)[&type=0]:0.4476887526)[&type=0]:0.5362608056,(100[&type=1]:0.1027717652,101[&type=2]:0.1027717652)[&type=1]:1.152568611)[&type=0]:0.384864542,(64[&type=1]:0.7711384286,65[&type=1]:0.7711384286)[&type=1]:0.8690664895)[&type=0]:0.4434002567)[&type=0]:0.4915742281)[&type=0]:0.4656349701)[&type=0]:0.4771876381)[&type=0]:0.4522656605,((((11[&type=3]:1.331027109,(36[&type=2]:0.3385778157,37[&type=1]:0.3385778157)[&type=1]:0.9924492937)[&type=1]:1.010333792,((38[&type=1]:1.227007636,(66[&type=1]:0.8193071908,(102[&type=1]:0.1802070658,103[&type=0]:0.1802070658)[&type=0]:0.639100125)[&type=0]:0.4077004455)[&type=0]:0.6227088748,((67[&type=1]:0.8256783751,(104[&type=0]:0.3316146478,105[&type=0]:0.3316146478)[&type=0]:0.4940637273)[&type=0]:0.4811267606,((106[&type=0]:0.3016956309,107[&type=0]:0.3016956309)[&type=0]:0.4920210177,(108[&type=1]:0.3715480457,109[&type=0]:0.3715480457)[&type=0]:0.4221686028)[&type=0]:0.5130884872)[&type=0]:0.5429113754)[&type=0]:0.4916443901)[&type=0]:0.5482143206,(((39[&type=1]:0.1783819657,40[&type=2]:0.1783819657)[&type=1]:0.8719239756,(41[&type=1]:0.1457960527,42[&type=2]:0.1457960527)[&type=1]:0.9045098886)[&type=1]:0.9087847246,(12[&type=3]:0.7847619088,13[&type=1]:0.7847619088)[&type=1]:1.174328757)[&type=1]:0.9304845558)[&type=0]:0.5456872167,((((43[&type=3]:1.030473834,44[&type=1]:1.030473834)[&type=1]:0.9047820892,((68[&type=1]:0.8772699601,(110[&type=0]:0.3777515928,111[&type=1]:0.3777515928)[&type=0]:0.4995183673)[&type=0]:0.5871937134,(69[&type=1]:0.5032583074,70[&type=3]:0.5032583074)[&type=1]:0.9612053662)[&type=0]:0.4707922494)[&type=0]:0.4244139142,(14[&type=2]:1.427747841,(45[&type=2]:0.5745128237,46[&type=1]:0.5745128237)[&type=1]:0.8532350178)[&type=1]:0.9319219958)[&type=0]:0.5362913174,(((((112[&type=0]:0.4914286306,113[&type=1]:0.4914286306)[&type=0]:0.4832975387,(114[&type=1]:0.4918637544,(168[&type=0]:0.02686597873,169[&type=0]:0.02686597873)[&type=0]:0.4649977757)[&type=0]:0.4828624148)[&type=0]:0.428908401,(71[&type=2]:0.3347729521,72[&type=1]:0.3347729521)[&type=1]:1.068861618)[&type=0]:0.5205538037,((73[&type=1]:0.3015678498,74[&type=2]:0.3015678498)[&type=1]:1.128961074,((115[&type=1]:0.1365411919,116[&type=2]:0.1365411919)[&type=1]:0.7990064922,(117[&type=1]:0.4373559389,118[&type=0]:0.4373559389)[&type=0]:0.4981917452)[&type=0]:0.4949812397)[&type=0]:0.4936594502)[&type=0]:0.4824445343,(((75[&type=1]:0.4906822627,76[&type=2]:0.4906822627)[&type=1]:0.8481162548,(77[&type=1]:0.7389376141,(119[&type=1]:0.3270100826,120[&type=0]:0.3270100826)[&type=0]:0.4119275315)[&type=0]:0.5998609033)[&type=0]:0.5375588721,(47[&type=1]:0.5728113235,48[&type=3]:0.5728113235)[&type=1]:1.303546066)[&type=0]:0.5302755186)[&type=0]:0.4893282464)[&type=0]:0.5393012838)[&type=0]:0.5350052332)[&type=0]:0.5629860586,((((2[&type=2]:1.36485046,(15[&type=1]:0.1975936705,16[&type=1]:0.1975936705)[&type=1]:1.167256789)[&type=1]:1.069878825,(3[&type=3]:0.5402145032,4[&type=3]:0.5402145032)[&type=3]:1.894514781)[&type=1]:1.043816412,((5[&type=3]:1.87327796,(17[&type=2]:0.8507897976,18[&type=1]:0.8507897976)[&type=1]:1.022488163)[&type=1]:1.101095383,(((((121[&type=1]:0.6844926579,(170[&type=1]:0.1992605879,171[&type=0]:0.1992605879)[&type=0]:0.4852320699)[&type=0]:0.4012580123,(122[&type=1]:0.6747104071,(172[&type=0]:0.2046246829,173[&type=0]:0.2046246829)[&type=0]:0.4700857242)[&type=0]:0.4110402631)[&type=0]:0.477172148,(78[&type=2]:0.4206278937,79[&type=1]:0.4206278937)[&type=1]:1.142294924)[&type=0]:0.4600253823,(((123[&type=0]:0.5281286641,124[&type=0]:0.5281286641)[&type=0]:0.4657223666,(125[&type=1]:0.3721385107,126[&type=0]:0.3721385107)[&type=0]:0.62171252)[&type=0]:0.4751077932,(80[&type=1]:0.9541136165,(127[&type=0]:0.433331915,128[&type=1]:0.433331915)[&type=0]:0.5207817015)[&type=0]:0.5148452074)[&type=0]:0.5539893766)[&type=0]:0.4595126151,((49[&type=3]:0.9819795283,(81[&type=1]:0.05890967887,82[&type=1]:0.05890967887)[&type=1]:0.9230698495)[&type=1]:1.047376139,((83[&type=1]:0.6494378709,84[&type=1]:0.6494378709)[&type=1]:0.9182443026,(((174[&type=1]:0.03965521191,175[&type=0]:0.03965521191)[&type=0]:0.5422887747,(176[&type=0]:0.09164336236,177[&type=0]:0.09164336236)[&type=0]:0.4903006243)[&type=0]:0.4467753402,(129[&type=1]:0.5284058187,(178[&type=0]:0.05072028377,179[&type=1]:0.05072028377)[&type=0]:0.4776855349)[&type=0]:0.5003135081)[&type=0]:0.5389628468)[&type=0]:0.4616734937)[&type=0]:0.4531051483)[&type=0]:0.4919125274)[&type=0]:0.5041723533)[&type=0]:0.536312948,(((6[&type=2]:1.246363328,(19[&type=1]:0.1529452985,20[&type=1]:0.1529452985)[&type=1]:1.093418029)[&type=1]:0.9057531343,(7[&type=2]:0.5375145988,8[&type=2]:0.5375145988)[&type=2]:1.614601863)[&type=1]:0.9819806705,(1[&type=2]:2.151979394,((21[&type=2]:0.2600142719,22[&type=1]:0.2600142719)[&type=1]:0.9261064077,(23[&type=3]:0.1922507827,24[&type=1]:0.1922507827)[&type=1]:0.9938698969)[&type=1]:0.9658587144)[&type=1]:0.9821177384)[&type=1]:0.8807615117)[&type=0]:0.518395086):0.4667462698;";
-        //String newick = "(((((((25[&type=3]:1.263049661,(50[&type=3]:0.1769602448,51[&type=1]:0.1769602448):1.086089416):0.9354985153,((((130[&type=0]:0.307192334,131[&type=0]:0.307192334):0.3983698071,(132[&type=0]:0.1787420183,133[&type=1]:0.1787420183):0.5268201229):0.4553395398,(85[&type=2]:0.00802907709,86[&type=1]:0.00802907709):1.152872604):0.5232668409,(((134[&type=0]:0.1837792,135[&type=0]:0.1837792):0.497743641,(136[&type=1]:0.1699922126,137[&type=0]:0.1699922126):0.5115306283):0.5133101256,((138[&type=1]:0.1568728848,139[&type=0]:0.1568728848):0.5293152641,(140[&type=0]:0.1121239178,141[&type=0]:0.1121239178):0.5740642311):0.5086448176):0.4893355554):0.5143796544):0.4907869725,((26[&type=2]:1.227181268,(52[&type=2]:0.4205992585,53[&type=1]:0.4205992585):0.8065820094):0.9652046198,((((142[&type=1]:0.2835386607,143[&type=0]:0.2835386607):0.4577662779,(144[&type=0]:0.2549424794,145[&type=1]:0.2549424794):0.4863624591):0.4414204198,(87[&type=3]:0.08592096839,88[&type=1]:0.08592096839):1.09680439):0.502252209,((89[&type=2]:0.1522401783,90[&type=1]:0.1522401783):0.9920620618,((146[&type=1]:0.09467037534,147[&type=0]:0.09467037534):0.5613810019,(148[&type=0]:0.1271406477,149[&type=0]:0.1271406477):0.5289107295):0.4882508629):0.5406753271):0.5074083205):0.496949261):0.4354935528,((9[&type=2]:1.72762098,(27[&type=2]:0.7627256207,28[&type=1]:0.7627256207):0.9648953594):0.8786446077,((29[&type=2]:1.114593564,(54[&type=2]:0.1448371847,55[&type=1]:0.1448371847):0.9697563792):0.9847114843,((56[&type=1]:0.2734576949,57[&type=3]:0.2734576949):1.328533047,((91[&type=1]:0.6892282435,(150[&type=0]:0.1773799819,151[&type=1]:0.1773799819):0.5118482616):0.4879306727,((152[&type=1]:0.2022465482,153[&type=0]:0.2022465482):0.4490958256,(154[&type=0]:0.1970320134,155[&type=1]:0.1970320134):0.4543103604):0.5258165424):0.4248318254):0.4973143067):0.5069605395):0.5185631138):0.3931733095,(((10[&type=2]:1.523164386,(30[&type=1]:0.4177042376,31[&type=2]:0.4177042376):1.105460148):1.025263302,(((58[&type=1]:0.6701944024,59[&type=1]:0.6701944024):0.9536510664,((92[&type=1]:0.5594536066,(156[&type=0]:0.1025489927,157[&type=0]:0.1025489927):0.4569046138):0.5106866291,(93[&type=1]:0.002162974643,94[&type=2]:0.002162974643):1.067977261):0.5537052331):0.4238206533,((60[&type=2]:0.7442277622,61[&type=1]:0.7442277622):0.85251864,((95[&type=1]:0.6186836386,(158[&type=0]:0.03850884619,159[&type=0]:0.03850884619):0.5801747924):0.4693542836,(96[&type=1]:0.3253517382,97[&type=3]:0.3253517382):0.762686184):0.5087084801):0.4509197199):0.500761566):0.4923866848,(((32[&type=1]:0.7005475011,33[&type=1]:0.7005475011):0.9820100999,(34[&type=1]:0.6828937046,35[&type=2]:0.6828937046):0.9996638964):0.8926218018,((((98[&type=1]:0.5861728886,(160[&type=0]:0.03717090593,161[&type=1]:0.03717090593):0.5490019827):0.4572957862,(99[&type=0]:0.4960895125,(162[&type=0]:0.002414062174,163[&type=0]:0.002414062174):0.4936754504):0.5473791622):0.5953500582,(62[&type=2]:0.4978985648,63[&type=1]:0.4978985648):1.140920168):0.4447864418,((((164[&type=1]:0.2396666009,165[&type=0]:0.2396666009):0.4794129696,(166[&type=0]:0.2713908179,167[&type=0]:0.2713908179):0.4476887526):0.5362608056,(100[&type=1]:0.1027717652,101[&type=2]:0.1027717652):1.152568611):0.384864542,(64[&type=1]:0.7711384286,65[&type=1]:0.7711384286):0.8690664895):0.4434002567):0.4915742281):0.4656349701):0.4771876381):0.4522656605,((((11[&type=3]:1.331027109,(36[&type=2]:0.3385778157,37[&type=1]:0.3385778157):0.9924492937):1.010333792,((38[&type=1]:1.227007636,(66[&type=1]:0.8193071908,(102[&type=1]:0.1802070658,103[&type=0]:0.1802070658):0.639100125):0.4077004455):0.6227088748,((67[&type=1]:0.8256783751,(104[&type=0]:0.3316146478,105[&type=0]:0.3316146478):0.4940637273):0.4811267606,((106[&type=0]:0.3016956309,107[&type=0]:0.3016956309):0.4920210177,(108[&type=1]:0.3715480457,109[&type=0]:0.3715480457):0.4221686028):0.5130884872):0.5429113754):0.4916443901):0.5482143206,(((39[&type=1]:0.1783819657,40[&type=2]:0.1783819657):0.8719239756,(41[&type=1]:0.1457960527,42[&type=2]:0.1457960527):0.9045098886):0.9087847246,(12[&type=3]:0.7847619088,13[&type=1]:0.7847619088):1.174328757):0.9304845558):0.5456872167,((((43[&type=3]:1.030473834,44[&type=1]:1.030473834):0.9047820892,((68[&type=1]:0.8772699601,(110[&type=0]:0.3777515928,111[&type=1]:0.3777515928):0.4995183673):0.5871937134,(69[&type=1]:0.5032583074,70[&type=3]:0.5032583074):0.9612053662):0.4707922494):0.4244139142,(14[&type=2]:1.427747841,(45[&type=2]:0.5745128237,46[&type=1]:0.5745128237):0.8532350178):0.9319219958):0.5362913174,(((((112[&type=0]:0.4914286306,113[&type=1]:0.4914286306):0.4832975387,(114[&type=1]:0.4918637544,(168[&type=0]:0.02686597873,169[&type=0]:0.02686597873):0.4649977757):0.4828624148):0.428908401,(71[&type=2]:0.3347729521,72[&type=1]:0.3347729521):1.068861618):0.5205538037,((73[&type=1]:0.3015678498,74[&type=2]:0.3015678498):1.128961074,((115[&type=1]:0.1365411919,116[&type=2]:0.1365411919):0.7990064922,(117[&type=1]:0.4373559389,118[&type=0]:0.4373559389):0.4981917452):0.4949812397):0.4936594502):0.4824445343,(((75[&type=1]:0.4906822627,76[&type=2]:0.4906822627):0.8481162548,(77[&type=1]:0.7389376141,(119[&type=1]:0.3270100826,120[&type=0]:0.3270100826):0.4119275315):0.5998609033):0.5375588721,(47[&type=1]:0.5728113235,48[&type=3]:0.5728113235):1.303546066):0.5302755186):0.4893282464):0.5393012838):0.5350052332):0.5629860586,((((2[&type=2]:1.36485046,(15[&type=1]:0.1975936705,16[&type=1]:0.1975936705):1.167256789):1.069878825,(3[&type=3]:0.5402145032,4[&type=3]:0.5402145032):1.894514781):1.043816412,((5[&type=3]:1.87327796,(17[&type=2]:0.8507897976,18[&type=1]:0.8507897976):1.022488163):1.101095383,(((((121[&type=1]:0.6844926579,(170[&type=1]:0.1992605879,171[&type=0]:0.1992605879):0.4852320699):0.4012580123,(122[&type=1]:0.6747104071,(172[&type=0]:0.2046246829,173[&type=0]:0.2046246829):0.4700857242):0.4110402631):0.477172148,(78[&type=2]:0.4206278937,79[&type=1]:0.4206278937):1.142294924):0.4600253823,(((123[&type=0]:0.5281286641,124[&type=0]:0.5281286641):0.4657223666,(125[&type=1]:0.3721385107,126[&type=0]:0.3721385107):0.62171252):0.4751077932,(80[&type=1]:0.9541136165,(127[&type=0]:0.433331915,128[&type=1]:0.433331915):0.5207817015):0.5148452074):0.5539893766):0.4595126151,((49[&type=3]:0.9819795283,(81[&type=1]:0.05890967887,82[&type=1]:0.05890967887):0.9230698495):1.047376139,((83[&type=1]:0.6494378709,84[&type=1]:0.6494378709):0.9182443026,(((174[&type=1]:0.03965521191,175[&type=0]:0.03965521191):0.5422887747,(176[&type=0]:0.09164336236,177[&type=0]:0.09164336236):0.4903006243):0.4467753402,(129[&type=1]:0.5284058187,(178[&type=0]:0.05072028377,179[&type=1]:0.05072028377):0.4776855349):0.5003135081):0.5389628468):0.4616734937):0.4531051483):0.4919125274):0.5041723533):0.536312948,(((6[&type=2]:1.246363328,(19[&type=1]:0.1529452985,20[&type=1]:0.1529452985):1.093418029):0.9057531343,(7[&type=2]:0.5375145988,8[&type=2]:0.5375145988):1.614601863):0.9819806705,(1[&type=2]:2.151979394,((21[&type=2]:0.2600142719,22[&type=1]:0.2600142719):0.9261064077,(23[&type=3]:0.1922507827,24[&type=1]:0.1922507827):0.9938698969):0.9658587144):0.9821177384):0.8807615117):0.518395086);";
-        Tree tree = new TreeParser(newick, true);
-        AnnotatedTreeParser atree = new AnnotatedTreeParser();
-        atree.init(newick);
-
-        Parameterization model = new Parameterization();
-        /* model.initByName("nTypes", 1,
-                "lifetime", new RealParameter("2"),
-                "shape", new IntegerParameter("10"),
-                "death", new RealParameter("0"),
-                "sampling", new RealParameter("1"),
-                "originTime", 10.0); */
-        model.initByName("nTypes", 4,
-                "lifetime", new RealParameter("0.5 1 2 3"),
-                //"shape", new IntegerParameter("100 50 20 5"),
-                "shape", new IntegerParameter("1 1 1 1"),
-                "death", new RealParameter("0 0 0 0"),
-                "symTransitions", new RealParameter("0.4 0 0 0 0 0.2 0 0 0 0 1 0 0 0 0 1"),
-                "asymTransitions", new RealParameter("0 0.6 0 0 0 0 0.5 0.3 0 0 0 0 0 0 0 0"),
-                "sampling", new RealParameter("1 1 1 1"),
-                "originTime", 5.0,
-                "originType", 0);
-
-        ADBTreeDistribution distribution = new ADBTreeDistribution();
-        distribution.initByName("tree", tree,
-                "parameterization", model,
-                "approx", false,
+                "approx", approx,
                 "conditionOnOrigin", true,
-                "useAnalyticalBDSolution", false);
+                "nSteps", nSteps,
+                "maxIterations", 500,
+                "tolerance", 1e-12);
+        return distribution;
+    }
 
-        ADBTreeDistribution adistribution = new ADBTreeDistribution();
-        adistribution.initByName("tree", atree,
-                "parameterization", model,
-                "approx", false,
-                "conditionOnOrigin", true);
 
-        System.out.println(distribution.calculateTreeLogLikelihood(tree));
-        System.out.println(adistribution.calculateTreeLogLikelihood(atree));
+    // ---- hand-computed history ----
 
-        // comparison to BDMM-Prime
-        // initialize
-        bdmmprime.parameterization.Parameterization parameterization = new CanonicalParameterization();
-        parameterization.initByName(
-                "typeSet", new TypeSet(4),
-                "processLength", new RealParameter("5"),
-                "birthRate", new SkylineVectorParameter(
-                        null,
-                        new RealParameter("0.8 0.2 0.5 0.333333"), 4),
-                "deathRate", new SkylineVectorParameter(
-                        null,
-                        new RealParameter("0 0 0 0"), 4),
-                "birthRateAmongDemes", new SkylineMatrixParameter(
-                        null,
-                        new RealParameter("1.2 0 0 0 0.5 0.3 0 0 0 0 0 0"), 4),
-                "migrationRate", new SkylineMatrixParameter(null, new RealParameter("0"), 4),
-                "samplingRate", new SkylineVectorParameter(null, new RealParameter("0"), 4),
-                "rhoSampling", new TimedParameter(
-                        new RealParameter("5"),
-                        new RealParameter("1"), 4),
-                "removalProb", new SkylineVectorParameter(null, new RealParameter("1"), 4));
+    @Test
+    public void testTwoTipAnnotatedLogLikelihoodAgainstManualHistory() throws Exception {
+        double originTime = 2.0;
+        double rootHeight = 1.0;
+        double tipEventHeight = 0.35;
+        double stemEventHeight = 1.45;
 
-        BirthDeathMigrationDistribution density = new BirthDeathMigrationDistribution();
-        density.initByName(
-                "parameterization", parameterization,
-                "startTypePriorProbs", new RealParameter("1 0 0 0"),
-                "tree", tree,
-                "typeLabel", "type",
-                "parallelize", true);
+        Parameterization model = singleType(1.0, 2, 0.2, 0.4, originTime);
 
-        System.out.println(density.calculateLogP());
+        AnnotatedTreeParser tree = new AnnotatedTreeParser();
+        tree.initByName(
+                "newick", "(((1:0.35):0.65,2:1.0):0.45);",
+                "adjustTipHeights", true);
+
+        ADBTreeDistribution distribution = distribution(tree, model, false, 1 << 14);
+
+        double actual = distribution.calculateTreeLogLikelihood(tree);
+        double expected = expectedTwoTipAnnotatedLogLikelihood(
+                distribution, model, rootHeight, tipEventHeight, stemEventHeight, originTime);
+
+        assertTrue(Double.isFinite(actual));
+        assertEquals(expected, actual, 1e-10);
+    }
+
+
+
+    // ---- sum over hidden histories ----
+
+    @Test
+    public void testSingleTypeHistoriesSumToIntegratedLikelihood() throws Exception {
+        double originTime = 0.2;
+        Parameterization model = singleType(1.0, 1, 0.2, 0.4, originTime);
+
+        Tree integratedTree = new TreeParser("1;", true);
+        ADBTreeDistribution integrated = distribution(integratedTree, model, false, 4096);
+        ADBTreeDistribution annotated = distribution(singleTipTree(new int[]{0}, new double[0]), model, false, 4096);
+
+        double integratedLogL = integrated.calculateTreeLogLikelihood(integratedTree);
+        double noEventLogL = annotated.calculateTreeLogLikelihood(singleTipTree(new int[]{0}, new double[0]));
+        double summedLogL = logSumTipHistories(annotated, model, 0, 2, 100);
+
+        assertTrue(Double.isFinite(integratedLogL));
+        assertTrue(summedLogL > noEventLogL, "hidden events add probability");
+        assertEquals(integratedLogL, summedLogL, 5e-3);
+    }
+
+
+    @Test
+    public void testTwoTypeHistoriesSumToIntegratedLikelihood() throws Exception {
+        // a tip of type 1 and an origin of type 0: the lineage has to change its type, directly or in several steps
+        double originTime = 0.3;
+        Parameterization model = model(new double[]{0.6, 0.9}, new int[]{2, 1}, new double[]{0.1, 0.2},
+                new double[]{0.5, 0.4}, new double[][]{{0.2, 0}, {0, 0.6}}, new double[][]{{0, 0.8}, {0.4, 0}}, originTime);
+
+        for (int tipType = 0; tipType < 2; tipType++) {
+            Tree integratedTree = new TreeParser("1[&type=" + tipType + "];", true);
+            ADBTreeDistribution integrated = distribution(integratedTree, model, false, 4096);
+            ADBTreeDistribution annotated = distribution(
+                    singleTipTree(new int[]{tipType}, new double[0]), model, false, 4096);
+
+            double integratedLogL = integrated.calculateTreeLogLikelihood(integratedTree);
+            double twoEvents = logSumTipHistories(annotated, model, tipType, 2, 20);
+            double threeEvents = logSumTipHistories(annotated, model, tipType, 3, 20);
+
+            // histories with up to 3 hidden events are most, but not all of the probability
+            assertTrue(Double.isFinite(integratedLogL));
+            assertTrue(twoEvents < threeEvents, "tip type " + tipType);
+            assertTrue(threeEvents < integratedLogL + 1e-3, "tip type " + tipType);
+            assertEquals(integratedLogL, threeEvents, 1.5e-2, "tip type " + tipType);
+        }
+    }
+
+
+    // ---- approximation ----
+
+    @Test
+    public void testApproximationIsCloseToIntegratedLikelihood() throws Exception {
+        for (int shape : new int[]{2, 5}) {
+            Parameterization model = singleType(5.0, shape, 0.1, 0.1, 15.0);
+            Tree tree = new TreeParser(FOUR_TIP_TREE, true);
+
+            double integrated = distribution(tree, model, false, 1 << 12).calculateTreeLogLikelihood(tree);
+            double approximated = distribution(tree, model, true, 1 << 12).calculateTreeLogLikelihood(tree);
+
+            assertTrue(Double.isFinite(integrated));
+            assertEquals(integrated, approximated, 5e-3, "shape " + shape);
+        }
+    }
+
+
+    // ---- impossible trees and invalid input ----
+
+    @Test
+    public void testRootAboveOriginHasZeroDensity() throws Exception {
+        Parameterization model = singleType(5.0, 2, 0.1, 0.1, 10.0);
+        Tree tree = new TreeParser("((A:12.0,B:12.0):0.0);", true);
+
+        assertEquals(Double.NEGATIVE_INFINITY, distribution(tree, model, false, 1 << 10).calculateTreeLogLikelihood(tree));
+    }
+
+
+    @Test
+    public void testCertainExtinctionHasZeroDensityTwoTypes() throws Exception {
+        // nothing is sampled, so a tree with sampled tips is impossible
+        Parameterization model = model(new double[]{2, 5}, new int[]{2, 3}, new double[]{0.1, 0.2}, new double[]{0, 0},
+                new double[][]{{0.2, 0}, {0, 0.6}}, new double[][]{{0, 0.8}, {0.4, 0}}, 10.0);
+        Tree tree = new TreeParser("(A[&type=0]:3.0,B[&type=1]:3.0):0.0;", true);
+
+        assertEquals(Double.NEGATIVE_INFINITY, distribution(tree, model, false, 1 << 10).calculateTreeLogLikelihood(tree));
+    }
+
+
+    @Test
+    public void testCertainExtinctionHasZeroDensitySingleType() throws Exception {
+        Parameterization model = singleType(5.0, 2, 0.1, 0.0, 10.0);
+        Tree tree = new TreeParser("(A:3.0,B:3.0):0.0;", true);
+
+        assertEquals(Double.NEGATIVE_INFINITY, distribution(tree, model, false, 1 << 10).calculateTreeLogLikelihood(tree));
+    }
+
+
+    @Test
+    public void testInvalidInputIsRejected() throws Exception {
+        Parameterization twoTypes = twoTypes(1, 1, 10.0);
+        Parameterization oneType = singleType(5.0, 2, 0.1, 0.1, 10.0);
+        Tree tree = new TreeParser("(A:3.0,B:3.0):0.0;", true);
+
+        // a tip type that does not exist
+        Tree badTypes = new TreeParser("(A[&type=2]:3.0,B[&type=0]:3.0):0.0;", true);
+        assertRejected(() -> distribution(badTypes, twoTypes, false, 1 << 10), "tips are valid");
+
+        // the number of steps has to be a power of 2
+        assertRejected(() -> distribution(tree, oneType, false, 1000), "power of 2");
+
+        // the series is only for one type
+        assertRejected(() -> distribution(tree, twoTypes, true, 1 << 10), "single-type");
+
+        // conditioning on the origin needs an origin time
+        Parameterization noOrigin = new Parameterization();
+        noOrigin.initByName("nTypes", 1,
+                "lifetime", new RealParameter("5"),
+                "shape", new IntegerParameter("2"),
+                "death", new RealParameter("0.1"),
+                "sampling", new RealParameter("0.1"));
+        assertRejected(() -> distribution(tree, noOrigin, false, 1 << 10), "time of origin");
+    }
+
+
+    // initByName wraps the exception of initAndValidate in a RuntimeException that keeps only the message
+    private void assertRejected(Executable construction, String messagePart) {
+        RuntimeException thrown = assertThrows(RuntimeException.class, construction);
+        assertTrue(thrown.getMessage().contains(messagePart), "unexpected message: " + thrown.getMessage());
+    }
+
+
+    // ---- helpers ----
+
+    private double expectedTwoTipAnnotatedLogLikelihood(ADBTreeDistribution distribution, Parameterization model,
+                                                       double rootHeight, double tipEventHeight,
+                                                       double stemEventHeight, double originTime) {
+        double conditionFactor = -Math.log1p(-distribution.P0System.getP0()[0][distribution.nSteps - 1]);
+        double hiddenTipEvent = Math.log(2.0 * distribution.P0Map.get(0).value(tipEventHeight));
+        double hiddenStemEvent = Math.log(2.0 * distribution.P0Map.get(0).value(stemEventHeight));
+
+        double stem = internalSegmentLogDensity(model, stemEventHeight, originTime) +
+                hiddenStemEvent +
+                internalSegmentLogDensity(model, rootHeight, stemEventHeight);
+        double leftTip = internalSegmentLogDensity(model, tipEventHeight, rootHeight) +
+                hiddenTipEvent +
+                tipSegmentLogDensity(model, tipEventHeight);
+        double rightTip = tipSegmentLogDensity(model, rootHeight);
+
+        return conditionFactor + stem + leftTip + rightTip;
+    }
+
+
+    private double internalSegmentLogDensity(Parameterization model, double start, double end) {
+        return Math.log((1.0 - model.getDeath(0)) * gammaDistribution(model).density(end - start));
+    }
+
+
+    private double tipSegmentLogDensity(Parameterization model, double end) {
+        return Math.log(model.getSampling(0)) + Math.log1p(-gammaDistribution(model).cumulativeProbability(end));
+    }
+
+
+    private GammaDistribution gammaDistribution(Parameterization model) {
+        double shape = model.getShape(0);
+        double scale = model.getLifetime(0) / shape;
+        return new GammaDistribution(null, shape, scale);
+    }
+
+
+    /**
+     * Log of the sum of the annotated densities over all histories of a single tip with at most maxEvents hidden
+     * events: the event heights on a grid with gridSize cells (midpoints, each event with the weight of its cell),
+     * and all types of the segments between the tip type and the origin type. The origin type is the one of the model.
+     */
+    private double logSumTipHistories(ADBTreeDistribution distribution, Parameterization model, int tipType,
+                                      int maxEvents, int gridSize) {
+        double dx = model.getOriginTime() / gridSize;
+        int originType = model.getOriginType();
+
+        // no hidden event: the tip lineage has to be of the origin type
+        double logSum = Double.NEGATIVE_INFINITY;
+        if (tipType == originType) {
+            logSum = distribution.calculateTreeLogLikelihood(singleTipTree(new int[]{tipType}, new double[0]));
+        }
+
+        for (int eventCount = 1; eventCount <= maxEvents; eventCount++) {
+            logSum = addHeights(distribution, model, tipType, eventCount, new double[eventCount], 0, 0,
+                    gridSize, dx, eventCount * Math.log(dx), logSum);
+        }
+        return logSum;
+    }
+
+
+    private double addHeights(ADBTreeDistribution distribution, Parameterization model, int tipType, int eventCount,
+                              double[] heights, int depth, int startIndex, int gridSize, double dx,
+                              double logWeight, double logSum) {
+        if (depth == eventCount) {
+            int[] types = new int[eventCount + 1];
+            types[0] = tipType;
+            types[eventCount] = model.getOriginType();
+            return addTypes(distribution, model, types, heights, 1, logWeight, logSum);
+        }
+
+        int remainingEvents = eventCount - depth;
+        for (int i = startIndex; i <= gridSize - remainingEvents; i++) {
+            heights[depth] = (i + 0.5) * dx;
+            logSum = addHeights(distribution, model, tipType, eventCount, heights, depth + 1, i + 1,
+                    gridSize, dx, logWeight, logSum);
+        }
+        return logSum;
+    }
+
+
+    // the types of the segments above the events 1, ..., m - 1 are free, the one above the last event is the origin type
+    private double addTypes(ADBTreeDistribution distribution, Parameterization model, int[] types, double[] heights,
+                            int position, double logWeight, double logSum) {
+        if (position == types.length - 1) {
+            double logLikelihood = distribution.calculateTreeLogLikelihood(singleTipTree(types, heights));
+            return logSumExp(logSum, logLikelihood + logWeight);
+        }
+        for (int type = 0; type < model.getNTypes(); type++) {
+            types[position] = type;
+            logSum = addTypes(distribution, model, types, heights, position + 1, logWeight, logSum);
+        }
+        return logSum;
+    }
+
+
+    /**
+     * A tree with a single tip and hidden events at the given heights. The type of the tip is types[0], and
+     * types[k] is the type of the lineage above the event k.
+     */
+    private AnnotatedTreeParser singleTipTree(int[] types, double[] eventHeights) {
+        AnnotatedTreeParser tree = new AnnotatedTreeParser();
+        tree.initByName(
+                "newick", singleTipNewick(types, eventHeights),
+                "adjustTipHeights", true);
+        return tree;
+    }
+
+
+    private String singleTipNewick(int[] types, double[] eventHeights) {
+        String newick = "1[&type=" + types[0] + "]";
+        double previousHeight = 0.0;
+        for (int k = 0; k < eventHeights.length; k++) {
+            newick = String.format("(%s:%.16f)[&type=%d]", newick, eventHeights[k] - previousHeight, types[k + 1]);
+            previousHeight = eventHeights[k];
+        }
+        return newick + ";";
+    }
+
+
+    private double logSumExp(double x, double y) {
+        if (x == Double.NEGATIVE_INFINITY) {
+            return y;
+        }
+        if (y == Double.NEGATIVE_INFINITY) {
+            return x;
+        }
+        if (y > x) {
+            double tmp = x;
+            x = y;
+            y = tmp;
+        }
+        return x + Math.log1p(Math.exp(y - x));
     }
 
 }

@@ -35,8 +35,8 @@ bin/
 *.out
 *.log
 *.state
-logs/
-XML/
 dev/
+logs/
+profiling/
 test_data/
-
+XML/
