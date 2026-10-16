@@ -1,4 +1,4 @@
-package adb.archive;
+package adb;
 
 import adb.util.Utils;
 import beast.base.core.Log;
@@ -17,6 +17,7 @@ import static adb.util.Utils.TRANSFORM_FORWARD;
 Class for solving the equations for P0, P1 and B
 and for calculating the probability of a tree based on its branching times given the ADB model parameters
  */
+@Deprecated
 public class GammaLogLikelihood {
 
 

@@ -1,4 +1,4 @@
-package adb.archive;
+package adb;
 
 import beast.base.core.*;
 import beast.base.evolution.speciation.SpeciesTreeDistribution;
@@ -12,7 +12,7 @@ import java.util.Arrays;
 
 import static org.apache.commons.math3.special.Gamma.logGamma;
 
-
+@Deprecated
 @Description("This model implements an Age-Dependent Branching Process " +
         "with Gamma (or Erlang)-distributed lifetimes, some death probability and extant sampling.")
 public class GammaBranchingModel extends SpeciesTreeDistribution {
