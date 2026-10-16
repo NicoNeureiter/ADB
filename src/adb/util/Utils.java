@@ -15,28 +15,35 @@ import java.io.PrintWriter;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * Static helpers for the likelihood and the operators: FFT convolution on the uniform time grid, array
+ * utilities, and sampling of event counts and positions. A grid of n steps on (0, T] has spacing T/n and
+ * points T/n, 2T/n, ..., T. The FFT length is 2n, so n must be a power of two.
+ */
 public class Utils {
 
-    // Global tools for calculations
-    // thread-safe FFT
+    /** FFT with one transformer per thread (safe for parallelization). */
     public static ThreadLocal<FastFourierTransformer> FFT =
             ThreadLocal.withInitial(() -> new FastFourierTransformer(DftNormalization.STANDARD));
-    // standard FFT
+
+    /** FFT shared by all threads. */
     public static FastFourierTransformer fft = new FastFourierTransformer(DftNormalization.STANDARD);
+
+    /** Linear interpolator. */
     public static LinearInterpolator interpolator = new LinearInterpolator();
 
     public static TransformType TRANSFORM_FORWARD = TransformType.FORWARD;
     public static TransformType TRANSFORM_INVERSE = TransformType.INVERSE;
 
 
-    // Check if number is a power of 2
+    /** True if x is a positive power of 2. */
     // https://stackoverflow.com/questions/600293/how-to-check-if-a-number-is-a-power-of-2
     public static boolean isPowerOfTwo(int x) {
         return (x > 0) && ((x & (x - 1)) == 0);
     }
 
 
-    // Pad an array with 0 to its double length
+    /** Copy of x padded with zeros to twice its length, as needed for a linear convolution by FFT. */
     public static double[] padZeros(double[] x) {
         int n = x.length;
         double[] xp = new double[n * 2];
@@ -45,7 +52,7 @@ public class Utils {
     }
 
 
-    // Generate linearly spaced array (excluding start, including end)
+    /** The n equally spaced points after start up to and including end. */
     public static double[] linSpace(double start, double end, int n) {
         double dx = (end - start) / n;
         double[] seq = new double[n];
@@ -56,7 +63,11 @@ public class Utils {
     }
 
 
-    // Perform partial convolution using FFT
+    /**
+     * Partial convolution using FFT:
+     * First n values of the convolution of two functions on the grid, times the grid spacing eps.
+     * The first function is given as its FFT fx, padded to length 2n. The second is y, with n values.
+     */
     public static double[] convolveFFT(Complex[] fx, double[] y, int n, double eps) {
 
         FastFourierTransformer fft = FFT.get();
@@ -83,7 +94,7 @@ public class Utils {
     }
 
 
-    // Calculate the mean of an array
+    /** Arithmetic mean of an array. */
     public static double getMean(double[] array) {
         double sum = 0;
         for (double num : array) {
@@ -92,8 +103,8 @@ public class Utils {
         return sum / array.length;
     }
 
+    /** Superseded by enforceMonotonicity, still used by GammaLogLikelihood. */
     @Deprecated
-    // Enforce non-increasing or non-decreasing array -- change String order?
     public static void forceOrder(double[] array, String order) {
         if (order.equals("non-increasing")) {
             for (int i = 1; i < array.length; i++) {
@@ -112,7 +123,7 @@ public class Utils {
         }
     }
 
-    // Enforce monotonicity of array
+    /** Makes the array monotone in place by clamping each value to its predecessor. Order is -1 for non-increasing, 1 for non-decreasing. */
     public static void enforceMonotonicity(double[] array, int order) {
         if (order == -1) {
             for (int i = 1; i < array.length; i++) {
@@ -132,7 +143,7 @@ public class Utils {
     }
 
 
-    // Find the index of the closest value in a sorted array using binary search // TODO: overcomplicated?
+    /** Index of the entry closest to value in an ascending array, by binary search. Ties go to the lower index. */
     // https://stackoverflow.com/questions/30245166/find-the-nearest-closest-value-in-a-sorted-list
     // complexity log(n) instead of n in a loop
     public static int findClosestIndex(double[] array, double value) {
@@ -162,7 +173,7 @@ public class Utils {
     }
 
 
-    // Calculate L2 distance element-wise
+    /** Euclidean distance between two arrays of the same shape (element-wise). */
     public static double getError(double[] x, double[] y) {
         int n = x.length;
         double sum = 0;
@@ -202,6 +213,7 @@ public class Utils {
         return Math.sqrt(sum);
     }
 
+    /** Redistributes the sum of x over its entries in place, with proportions from a symmetric Dirichlet(alpha). */
     // https://stats.stackexchange.com/questions/69210/drawing-from-dirichlet-distribution
     public static void distributeDirichlet(double[] x, double alpha){
         int n = x.length;
@@ -228,6 +240,7 @@ public class Utils {
     }
 
 
+    /** As distributeDirichlet, and returns the log density of the new x: the Dirichlet density of the proportions, scaled by the sum. */
     public static double distributeDirichletProbability(double[] x, double alpha){
         int n = x.length;
         double sumX = 0;
@@ -261,6 +274,7 @@ public class Utils {
     }
 
 
+    /** Draws a normal value rounded to the nearest integer, with everything below 1.5 put on 1. */
     public static int sampleDiscretizedNormal(double mean, double sd) {
         double continuousSample = mean + Randomizer.nextGaussian() * sd;
         // continuity correction
@@ -270,6 +284,7 @@ public class Utils {
     }
 
 
+    /** Log probability of k under sampleDiscretizedNormal. */
     public static double logProbabilityDiscretizedNormal(int k, double mean, double sd) {
         NormalDistribution normal = new NormalDistribution(null, mean, sd);
         double prob;
@@ -284,7 +299,7 @@ public class Utils {
     }
 
 
-    // for testing: all arrays must be of the same length!
+    /** For debugging: writes arrays of equal length as columns of a csv file, every thin-th row. */
     public static void saveArrays(List<double[]> arrays, int thin, String header, String fileName) {
 
         int length = arrays.get(0).length;

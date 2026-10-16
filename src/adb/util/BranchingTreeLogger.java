@@ -3,13 +3,18 @@ package adb.util;
 import adb.tree.AnnotatedNode;
 import adb.tree.AnnotatedTree;
 import beast.base.core.BEASTObject;
+import beast.base.core.Description;
 import beast.base.core.Input;
 import beast.base.core.Loggable;
 import beast.base.evolution.tree.Node;
-import beast.base.evolution.tree.Tree;
 
 import java.io.PrintStream;
 
+/**
+ * Logs the tree without the hidden events, one Newick line per sample. The node type is written as
+ * metadata "type" when printMetaData is true.
+ */
+@Description("Logs an annotated tree as a standard branching tree, without hidden events.")
 public class BranchingTreeLogger extends BEASTObject implements Loggable {
 
     public Input<AnnotatedTree> annotatedTreeInput =
@@ -18,7 +23,7 @@ public class BranchingTreeLogger extends BEASTObject implements Loggable {
     public Input<Boolean> printMetaDataInput =
             new Input<>("printMetaData", "print node metadata (including type) (default true)", true);
 
-    Tree tree;
+    AnnotatedTree tree;
     boolean printMetaData;
 
     @Override
@@ -36,10 +41,9 @@ public class BranchingTreeLogger extends BEASTObject implements Loggable {
     public void log(long nSample, PrintStream out) {
 
         if (printMetaData) {
-            // set up metadata string
+            // set metadata string
             for (Node node : tree.getNodesAsArray()) {
-                node.setMetaData("type", ((AnnotatedNode)node).getType());
-                node.metaDataString = String.format("%s=%d", "type", ((AnnotatedNode)node).getType());
+                node.metaDataString = String.format("type=%d", ((AnnotatedNode)node).getType());
             }
         }
         out.print("tree STATE_" + nSample + " = ");
