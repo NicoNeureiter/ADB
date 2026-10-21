@@ -5,6 +5,8 @@ import adb.distribution.Parameterization;
 import adb.tree.AnnotatedNode.EventNode;
 import beast.base.evolution.tree.Node;
 import beast.base.evolution.tree.TreeParser;
+import beast.base.inference.State;
+import beast.base.inference.StateNode;
 import beast.base.inference.parameter.IntegerParameter;
 import beast.base.inference.parameter.RealParameter;
 import org.junit.jupiter.api.Test;
@@ -99,5 +101,38 @@ public class AnnotatedTreeInitialiserTest {
         assertTimeoutPreemptively(Duration.ofSeconds(10), () ->
                 assertThrows(RuntimeException.class, () ->
                         initialise("(1[&type=0]:5.0,2[&type=1]:5.0):1.0;", model)));
+    }
+
+    private Parameterization singleTypeModel(RealParameter lifetime) {
+        Parameterization model = new Parameterization();
+        model.initByName("lifetime", lifetime, "shape", new RealParameter("10"), "death", new RealParameter("0.1"),
+                "sampling", new RealParameter("0.5"), "originTime", ORIGIN);
+        return model;
+    }
+
+    private State state(StateNode... nodes) {
+        State state = new State();
+        state.initByName("stateNode", List.of(nodes));
+        state.initialise();
+        return state;
+    }
+
+    // a parameterization that shares parameters with the State breaks recalculation and restore of tree moves
+    @Test
+    public void testParameterizationInStateFails() {
+        RealParameter lifetime = new RealParameter("1");
+        AnnotatedTreeInitialiser tree = (AnnotatedTreeInitialiser) initialise("(1:5.0,2:5.0):1.0;", singleTypeModel(lifetime));
+        state(lifetime, tree);
+        assertThrows(IllegalArgumentException.class, tree::initStateNodes);
+    }
+
+    // its own parameterization, with parameters outside the State, is fine
+    @Test
+    public void testOwnParameterizationPasses() {
+        RealParameter lifetime = new RealParameter("1");
+        AnnotatedTreeInitialiser tree = (AnnotatedTreeInitialiser) initialise("(1:5.0,2:5.0):1.0;",
+                singleTypeModel(new RealParameter("1")));
+        state(lifetime, tree);
+        assertDoesNotThrow(tree::initStateNodes);
     }
 }

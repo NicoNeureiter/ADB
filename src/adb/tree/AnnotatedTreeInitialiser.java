@@ -2,6 +2,7 @@ package adb.tree;
 
 import adb.tree.AnnotatedNode.EventNode;
 import adb.distribution.Parameterization;
+import beast.base.core.BEASTInterface;
 import beast.base.core.Description;
 import beast.base.core.Input;
 import beast.base.core.Log;
@@ -213,8 +214,20 @@ public class AnnotatedTreeInitialiser extends AnnotatedTree implements StateNode
     }
 
     
+    /**
+     * Check that the parameterization gives fixed start values. If it shares parameters with the State
+     * (e.g. parameterization="@model"), the tree has an input that depends on the State,
+     * and tree moves are then no longer recalculated or restored correctly.
+     */
     @Override
-    public void initStateNodes() { }
+    public void initStateNodes() {
+        for (BEASTInterface input : parameterization.listActiveBEASTObjects()) {
+            if (input instanceof StateNode && ((StateNode) input).getState() != null) {
+                throw new IllegalArgumentException("The parameterization of " + getID() + " contains " + input.getID()
+                        + ", which is in the State: give the initialiser its own parameterization with the start values");
+            }
+        }
+    }
 
     @Override
     public void getInitialisedStateNodes(List<StateNode> stateNodeList) {
