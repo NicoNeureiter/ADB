@@ -169,6 +169,76 @@ public class AnnotatedTreeOperatorMultiTypeTest {
         }
     }
 
+    // ShapeEventScaler with c and then 1/c restores the events, for the segments of every type (many of which start
+    // at a type change)
+    @Test
+    public void testShapeEventScalerInverse() {
+        AnnotatedTreeParser tree = tree();
+        ShapeEventScaler operator = AnnotatedTreeOperatorTest.shapeEventScaler(tree, model);
+        for (int type = 0; type < 4; type++) {
+            boolean moved = AnnotatedTreeOperatorTest.inverseRestoresEvents(operator, tree, type, 0.6);
+            assertEquals(AnnotatedTreeOperatorTest.movableEvents(tree, model, type) > 0, moved, "type " + type);
+        }
+    }
+
+    // ShapeEventScaler scales the shape of one type j and moves only the hidden events of type j: node heights, type
+    // changes and the events of other types stay, and log HR = (1 - M/2) log f with M the hidden events of type j
+    @Test
+    public void testShapeEventScaler() {
+        Randomizer.setSeed(1);
+        AnnotatedTreeParser tree = tree();
+        ShapeEventScaler operator = AnnotatedTreeOperatorTest.shapeEventScaler(tree, model);
+        RealParameter shape = operator.shape;
+        boolean[] typeScaled = new boolean[4];
+        for (int proposal = 0; proposal < 100; proposal++) {
+            Double[] oldShapes = shape.getValues();
+            List<List<EventNode>> oldEvents = new ArrayList<>();
+            for (Node node : tree.getNodesAsArray()) {
+                List<EventNode> copy = new ArrayList<>();
+                for (EventNode event : ((AnnotatedNode) node).getEvents()) copy.add(event.copy());
+                oldEvents.add(copy);
+            }
+
+            double logHR = operator.proposal();
+            if (logHR == Double.NEGATIVE_INFINITY) {
+                for (int j = 0; j < 4; j++) shape.setValue(j, oldShapes[j]); // a failed proposal leaves the shape scaled
+                continue;
+            }
+
+            int changed = -1;
+            for (int j = 0; j < 4; j++) {
+                if (shape.getValue(j) != oldShapes[j].doubleValue()) {
+                    assertEquals(-1, changed, "only one shape changes, proposal " + proposal);
+                    changed = j;
+                }
+            }
+            assertNotEquals(-1, changed, "proposal " + proposal);
+            typeScaled[changed] = true;
+
+            int hidden = AnnotatedTreeOperatorTest.movableEvents(tree, model, changed);
+            assertEquals((1 - hidden / 2.0) * Math.log(shape.getValue(changed) / oldShapes[changed]), logHR, 1e-9,
+                    "proposal " + proposal);
+            for (Node node : tree.getNodesAsArray()) {
+                List<EventNode> before = oldEvents.get(node.getNr()), after = ((AnnotatedNode) node).getEvents();
+                assertEquals(before.size(), after.size());
+                for (int e = 0; e < before.size(); e++) {
+                    assertEquals(before.get(e).getType(), after.get(e).getType());
+                    boolean hiddenOfType = e > 0 && before.get(e).getType() == changed
+                            && before.get(e - 1).getType() == changed
+                            && !(e == 1 && node.isLeaf() && node.getHeight() == 0.0); // the age of a sampled cell stays
+                    if (!hiddenOfType) {
+                        assertEquals(before.get(e).getHeight(), after.get(e).getHeight(), 0.0,
+                                "node " + node.getNr() + ", event " + e + ", proposal " + proposal);
+                    }
+                }
+            }
+            assertDoesNotThrow(() -> tree.validate(model), "proposal " + proposal);
+        }
+        for (int j = 0; j < 4; j++) {
+            assertTrue(typeScaled[j], "type " + j + " was scaled");
+        }
+    }
+
     private void runProposals(Function<AnnotatedTreeParser, AnnotatedTreeOperator> create) {
         int finite = 0;
         for (int seed = 1; seed <= SEEDS; seed++) {

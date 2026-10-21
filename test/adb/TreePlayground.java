@@ -6,7 +6,6 @@ import adb.operators.*;
 import adb.tree.AnnotatedTree;
 import adb.tree.AnnotatedTreeInitialiser;
 import adb.tree.AnnotatedTreeParser;
-import beast.base.inference.parameter.IntegerParameter;
 import beast.base.inference.parameter.RealParameter;
 import beast.base.util.Randomizer;
 
@@ -23,19 +22,24 @@ public class TreePlayground {
     static int TREE_INDEX = 1;           // index in the file, counting from 1
     static boolean INITIALISE = false;   // true: input is tip-typed or untyped, draw ancestral types and events
     static boolean LIKELIHOOD = true;   // true: also print the ADB log-likelihood before and after each move (N_MOVES = 0: only compute it)
-    static String MOVE = "exchange";     // eventSampler | wilsonBalding | exchange | subtreeSlide | scale | upDownEventSampler
+    static String MOVE = "exchange";     // eventSampler | wilsonBalding | exchange | subtreeSlide | scale | upDownEventSampler | shapeEventScaler
     static int N_MOVES = 1;
     static long SEED = 1;                // first seed to try
     static int MAX_TRIES = 100;          // seeds to try per move if rejected
 
 
     static RealParameter lifetime = new RealParameter("0.5 1 2 3");
+    static RealParameter shape = new RealParameter("100 50 20 5"); // real, so that shapeEventScaler can scale it
+    static {
+        lifetime.setBounds(0.0, Double.POSITIVE_INFINITY);
+        shape.setBounds(0.0, Double.POSITIVE_INFINITY);
+    }
 
     static Parameterization model() {
         Parameterization model = new Parameterization();
         model.initByName("nTypes", 4,
                 "lifetime", lifetime,
-                "shape", new IntegerParameter("100 50 20 5"),
+                "shape", shape,
                 "death", new RealParameter("0.05 0.1 0.1 0.1"),
                 "symTransitions", new RealParameter("0.4 0.1 0 0 0 0.2 0 0 0 0 1 0 0 0 0 1"),
                 "asymTransitions", new RealParameter("0 0.5 0 0 0 0 0.5 0.3 0 0 0 0 0 0 0 0"),
@@ -73,10 +77,20 @@ public class TreePlayground {
                 op.initByName("tree", tree, "parameterization", model, "weight", 1.0,
                         "up", lifetime, "proportionBranches", 1.0);
                 break;
+            case "shapeEventScaler": // scales the shape of one type and moves its hidden events (the model's shape)
+                op = new ShapeEventScaler();
+                op.initByName("tree", tree, "parameterization", model, "weight", 1.0, "scaleFactor", 0.5);
+                break;
             default:
                 throw new IllegalArgumentException("unknown move " + move);
         }
         return op;
+    }
+
+    // Newick with the taxon labels and the child order of the input (toString prints the sorted Newick of the log
+    // files, with node numbers + 1 instead of labels, which only a Translate block maps back)
+    static String newick(AnnotatedTree tree) {
+        return tree.convertAnnotatedTree().getRoot().toNewick(false) + ";";
     }
 
     static double logLikelihood(AnnotatedTree tree, Parameterization model) {
@@ -110,7 +124,7 @@ public class TreePlayground {
             initialised.initByName("branchingTree", tree, "parameterization", model);
             tree = initialised;
         }
-        System.out.println(tree);
+        System.out.println(newick(tree));
         validate(tree, model);
 
         if (LIKELIHOOD) System.out.println("log-likelihood = " + logLikelihood(tree, model));
@@ -120,21 +134,27 @@ public class TreePlayground {
         for (int i = 0; i < N_MOVES; i++) {
             // on rejection (logHR = -Infinity) retry with the next seed
             AnnotatedTree original = tree.copy();
+            Double[] originalLifetime = lifetime.getValues(), originalShape = shape.getValues();
             double logHR = Double.NEGATIVE_INFINITY;
             for (int t = 0; t < MAX_TRIES && logHR == Double.NEGATIVE_INFINITY; t++, seed++) {
                 Randomizer.setSeed(seed);
                 logHR = op.proposal();
-                if (logHR == Double.NEGATIVE_INFINITY) tree.assignFrom(original); // restore before retrying
+                if (logHR == Double.NEGATIVE_INFINITY) { // restore before retrying: a failed move may have changed parameters
+                    tree.assignFrom(original);
+                    for (int j = 0; j < lifetime.getDimension(); j++) lifetime.setValue(j, originalLifetime[j]);
+                    for (int j = 0; j < shape.getDimension(); j++) shape.setValue(j, originalShape[j]);
+                }
             }
             if (logHR == Double.NEGATIVE_INFINITY) {
                 System.out.println("\n" + MOVE + " rejected for all " + MAX_TRIES + " seeds");
                 break;
             }
             System.out.println("\n" + MOVE + " logHR = " + logHR + " (seed " + (seed - 1) + ")");
-            System.out.println(tree);
+            System.out.println(newick(tree));
             validate(tree, model);
             if (LIKELIHOOD) System.out.println("log-likelihood = " + logLikelihood(tree, model));
         }
         if (MOVE.equals("upDownEventSampler")) System.out.println("lifetime = " + lifetime);
+        if (MOVE.equals("shapeEventScaler")) System.out.println("shape = " + shape);
     }
 }

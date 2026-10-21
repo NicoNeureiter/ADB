@@ -2,9 +2,12 @@ package adb.operators;
 
 import adb.distribution.Parameterization;
 import adb.tree.AnnotatedNode;
+import adb.tree.AnnotatedNode.EventNode;
+import adb.tree.AnnotatedTree;
 import adb.tree.AnnotatedTreeParser;
 import beast.base.evolution.tree.Node;
 import beast.base.inference.parameter.IntegerParameter;
+import beast.base.inference.parameter.Parameter;
 import beast.base.inference.parameter.RealParameter;
 import beast.base.util.Randomizer;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,6 +50,79 @@ public class AnnotatedTreeOperatorTest {
                 "death", death,
                 "sampling", sampling,
                 "originTime", 7.859634);
+    }
+
+    /** A copy of the model with another shape parameter. */
+    static Parameterization withShape(Parameterization model, Parameter<?> shape) {
+        Parameterization copy = new Parameterization();
+        copy.initByName("nTypes", model.getNTypes(), "lifetime", model.lifetimeParameterInput.get(), "shape", shape,
+                "death", model.deathParameterInput.get(), "symTransitions", model.symTransitionsParameterInput.get(),
+                "asymTransitions", model.asymTransitionsParameterInput.get(),
+                "sampling", model.samplingParameterInput.get(), "originTime", model.getOriginTime(),
+                "originType", model.originTypeInput.get());
+        return copy;
+    }
+
+    /** A ShapeEventScaler on a copy of the model with a real shape (ShapeEventScaler cannot scale an integer shape). */
+    static ShapeEventScaler shapeEventScaler(AnnotatedTree tree, Parameterization model) {
+        Double[] values = new Double[model.getNTypes()];
+        for (int j = 0; j < values.length; j++) values[j] = model.getShape(j);
+        RealParameter shape = new RealParameter(values);
+        shape.setBounds(0.0, Double.POSITIVE_INFINITY);
+        ShapeEventScaler operator = new ShapeEventScaler();
+        operator.initByName("tree", tree, "parameterization", withShape(model, shape), "scaleFactor", 0.3,
+                "optimise", false, "weight", 1.0);
+        return operator;
+    }
+
+    /**
+     * Number of hidden events of the given type that ShapeEventScaler moves: events with the same type as the event
+     * below them on the branch, except the first one above a leaf at height 0, which bounds the age of the sampled cell.
+     */
+    static int movableEvents(AnnotatedTree tree, Parameterization model, int type) {
+        int count = 0;
+        for (Node node : tree.getNodesAsArray()) {
+            if (node.isRoot() && model.getOriginTime() == null) continue;
+            List<EventNode> events = ((AnnotatedNode) node).getEvents();
+            for (int e = 1; e < events.size(); e++) {
+                boolean hidden = events.get(e).getType() == events.get(e - 1).getType() && events.get(e).getType() == type;
+                boolean age = e == 1 && node.isLeaf() && node.getHeight() == 0.0;
+                if (hidden && !age) count++;
+            }
+        }
+        return count;
+    }
+
+    /** Height of every event, node by node. */
+    static List<List<Double>> eventHeights(AnnotatedTree tree) {
+        List<List<Double>> heights = new ArrayList<>();
+        for (Node node : tree.getNodesAsArray()) {
+            List<Double> h = new ArrayList<>();
+            for (EventNode event : ((AnnotatedNode) node).getEvents()) h.add(event.getHeight());
+            heights.add(h);
+        }
+        return heights;
+    }
+
+    /** Applies the event map of ShapeEventScaler with factor c and then 1/c to every branch, for the segments of the
+     *  type, and checks that this restores all events; returns whether the first map moved any event. */
+    static boolean inverseRestoresEvents(ShapeEventScaler operator, AnnotatedTree tree, int type, double c) {
+        List<List<Double>> before = eventHeights(tree);
+        for (Node node : tree.getNodesAsArray()) {
+            assertTrue(operator.scaleDeviations((AnnotatedNode) node, type, c) >= 0, "a contraction is always valid");
+        }
+        boolean moved = !eventHeights(tree).equals(before);
+        for (Node node : tree.getNodesAsArray()) {
+            assertTrue(operator.scaleDeviations((AnnotatedNode) node, type, 1 / c) >= 0);
+        }
+        List<List<Double>> after = eventHeights(tree);
+        for (int i = 0; i < before.size(); i++) {
+            assertEquals(before.get(i).size(), after.get(i).size());
+            for (int e = 0; e < before.get(i).size(); e++) {
+                assertEquals(before.get(i).get(e), after.get(i).get(e), 1e-10, "type " + type + ", node " + i + ", event " + e);
+            }
+        }
+        return moved;
     }
 
     private int totalEvents() {
@@ -145,6 +221,80 @@ public class AnnotatedTreeOperatorTest {
         }
         assertEquals(0.0, sum / draws, 0.05);
         assertEquals(1.0, sumSquares / draws, 0.05);
+    }
+
+    // ShapeEventScaler maps the waiting times w of every segment to regular + c (w - regular), with regular the segment
+    // length divided by the number of waiting times; with c and then 1/c the events must be back where they were
+    @Test
+    public void testShapeEventScalerInverse() {
+        assertTrue(inverseRestoresEvents(shapeEventScaler(tree, model), tree, 0, 0.6), "the map must move some events");
+    }
+
+    // the map is affine with factor c = 1/sqrt(f) on the M hidden events, and the Bactrian kernel is symmetric on the
+    // log scale: log HR = log f + M log c = (1 - M/2) log f
+    @Test
+    public void testShapeEventScalerHastingsRatio() {
+        ShapeEventScaler operator = shapeEventScaler(tree, model);
+        int hidden = movableEvents(tree, model, 0);
+        int valid = 0;
+        for (int proposal = 0; proposal < 20; proposal++) {
+            operator.shape.setValue(0, 100.0); // a failed proposal leaves the shape scaled
+            List<List<Double>> before = eventHeights(tree);
+            double logHR = operator.proposal();
+            if (logHR == Double.NEGATIVE_INFINITY) continue;
+            valid++;
+            double logf = Math.log(operator.shape.getValue(0) / 100.0);
+            assertEquals((1 - hidden / 2.0) * logf, logHR, 1e-9, "proposal " + proposal);
+            assertNotEquals(before, eventHeights(tree), "proposal " + proposal);
+            assertEquals(hidden, movableEvents(tree, model, 0));
+            assertDoesNotThrow(() -> tree.validate(model), "proposal " + proposal);
+        }
+        assertTrue(valid >= 10, "valid proposals: " + valid);
+    }
+
+    // the first hidden event above a leaf at height 0 bounds the age of the sampled cell, a truncated lifetime:
+    // it stays, while the events above it move
+    @Test
+    public void testShapeEventScalerKeepsAgeOfSampledCells() {
+        ShapeEventScaler operator = shapeEventScaler(tree, model);
+        boolean aboveMoved = false;
+        for (int proposal = 0; proposal < 20; proposal++) {
+            operator.shape.setValue(0, 100.0);
+            List<List<Double>> before = eventHeights(tree);
+            if (operator.proposal() == Double.NEGATIVE_INFINITY) continue;
+            List<List<Double>> after = eventHeights(tree);
+            for (Node leaf : tree.getExternalNodes()) {
+                List<Double> b = before.get(leaf.getNr()), a = after.get(leaf.getNr());
+                if (b.size() > 1) assertEquals(b.get(1), a.get(1), 0.0, "leaf " + leaf.getNr() + ", proposal " + proposal);
+                for (int e = 2; e < b.size(); e++) aboveMoved |= !b.get(e).equals(a.get(e));
+            }
+        }
+        assertTrue(aboveMoved, "the events above the first one on a leaf branch must move");
+    }
+
+    // an expansion that would make a waiting time negative fails, and the events of that branch stay unchanged
+    @Test
+    public void testShapeEventScalerExpansionFails() {
+        ShapeEventScaler operator = shapeEventScaler(tree, model);
+        boolean failed = false;
+        for (Node node : tree.getNodesAsArray()) {
+            List<Double> before = eventHeights(tree).get(node.getNr());
+            if (operator.scaleDeviations((AnnotatedNode) node, 0, 1e3) < 0) {
+                failed = true;
+                assertEquals(before, eventHeights(tree).get(node.getNr()), "node " + node.getNr());
+            }
+        }
+        assertTrue(failed, "an expansion by 1000 must fail on some branch");
+    }
+
+    // the shape of this model is an integer, which the operator cannot scale continuously
+    @Test
+    public void testShapeEventScalerRejectsIntegerShape() {
+        ShapeEventScaler operator = new ShapeEventScaler();
+        // initByName wraps the IllegalArgumentException, whose message it keeps
+        RuntimeException e = assertThrows(RuntimeException.class,
+                () -> operator.initByName("tree", tree, "parameterization", model, "weight", 1.0));
+        assertTrue(e.getMessage().contains("integer parameter"), e.getMessage());
     }
 
     // the tree and the lifetime are scaled by f (the time-scale ridge), a rate by 1/f

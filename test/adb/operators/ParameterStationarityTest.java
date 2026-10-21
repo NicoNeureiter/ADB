@@ -165,6 +165,65 @@ public class ParameterStationarityTest {
     }
 
 
+    // the other parameter is the shape of the operator's model, which it scales; the target density keeps the shape
+    // of the simulation
+    static ShapeEventScaler shapeEventScaler(MovingParameters m) {
+        ShapeEventScaler operator = new ShapeEventScaler();
+        operator.initByName("tree", m.samples().tree, "parameterization", AnnotatedTreeOperatorTest.withShape(m.model(), m.other()),
+                "scaleFactor", 0.1, "optimise", false, "weight", 1.0);
+        return operator;
+    }
+
+    // control: ShapeEventScaler without the Jacobian M log c of the event map, i.e. only the log f of the scaling
+    static Operator shapeEventScalerWithoutJacobian(MovingParameters m) {
+        ShapeEventScaler operator = shapeEventScaler(m);
+        RealParameter shape = m.other();
+        return new Operator() {
+            @Override
+            public void initAndValidate() { }
+
+            @Override
+            public double proposal() {
+                Double[] oldShape = shape.getValues();
+                double logHR = operator.proposal();
+                if (logHR == Double.NEGATIVE_INFINITY) return logHR;
+                for (int j = 0; j < shape.getDimension(); j++) {
+                    if (shape.getValue(j).doubleValue() != oldShape[j]) {
+                        double logc = -0.5 * Math.log(shape.getValue(j) / oldShape[j]);
+                        return logHR - AnnotatedTreeOperatorTest.movableEvents(m.samples().tree, m.model(), j) * logc;
+                    }
+                }
+                return logHR;
+            }
+        };
+    }
+
+
+    @Test
+    public void testControlBiasedShapeEventScalerFails() {
+        Result result = stationarity(ONE, "ShapeEventScaler with Hastings ratio + log 2",
+                m -> biased(shapeEventScaler(m)));
+        assertTrue(drifts(result), "a Hastings ratio that is off by log 2 must be detected");
+    }
+
+    @Test
+    public void testControlShapeEventScalerWithoutJacobianFails() {
+        Result result = stationarity(ONE, "ShapeEventScaler without the Jacobian of the events",
+                ParameterStationarityTest::shapeEventScalerWithoutJacobian);
+        assertTrue(drifts(result), "a missing Jacobian must be detected");
+    }
+
+    @Test
+    public void testShapeEventScalerOneType() {
+        assertStationary(stationarity(ONE, "ShapeEventScaler", ParameterStationarityTest::shapeEventScaler));
+    }
+
+    @Test
+    public void testShapeEventScalerTwoTypes() {
+        assertStationary(stationarity(TWO, "ShapeEventScaler", ParameterStationarityTest::shapeEventScaler));
+    }
+
+
     @Test
     public void testControlBiasedUpDownEventSamplerFails() {
         Result result = stationarity(ONE, "UpDownEventSampler with Hastings ratio + log 2",
