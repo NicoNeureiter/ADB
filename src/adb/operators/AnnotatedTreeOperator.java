@@ -30,7 +30,9 @@ import java.util.List;
  * geometric mean over the segment of the hidden division factor of the likelihood (2 P0 for one type), with P0 from
  * Utils.approximateP0. Their positions follow a Dirichlet distribution on the segment, with the shape of the lifetime
  * distribution as concentration.
- * A leaf sampled at time 0 is drawn exactly backwards in time from the lifetime distribution.
+ * A leaf sampled at time 0 is drawn backwards in time from the lifetime distribution, with its scale multiplied by
+ * c^(-1/shape) at the start of each waiting time, where c = (1 - d) times the hidden division factor: for a constant c
+ * this turns c^m into an exponential tilt of the waiting times, exact up to the survival of the sampled cell.
  * resampleEvents returns the log density of the draw and getBranchProbability that of the current events,
  * so the difference of the two enters the log Hastings ratio.
  */
@@ -124,23 +126,22 @@ public abstract class AnnotatedTreeOperator extends TreeOperator {
 
 
     // Draws the hidden events of one type segment [start, end) into events and returns the log density of the draw.
-    // A leaf starting at height 0 draws waiting times backwards from end, and the remaining time contributes the survival probability.
+    // A leaf starting at height 0 draws tilted waiting times backwards from end, and the remaining time contributes the survival probability.
     // Otherwise the event count comes from sampleEventCount and the positions from the Dirichlet distribution.
     private double sampleEventsPerType(AnnotatedNode node, double start, double end, int type, int nEvents, boolean drawEventCount, ArrayList<EventNode> events) {
 
         double logp = 0;
 
-        double lifetime = parameterization.getLifetime(type);
         double shape = parameterization.getShape(type);
-        double scale = lifetime / shape;
 
         if (node.isLeaf() && start == 0.0) {
-            GammaDistribution gammaDist = new GammaDistribution(null, shape, scale);
             double t = end;
             double waitingTime;
             while (t > start) {
                 // determine the next hidden event
-                waitingTime = Randomizer.nextGamma(shape, 1/scale);
+                double tiltedScale = tiltedScale(type, t);
+                GammaDistribution gammaDist = new GammaDistribution(null, shape, tiltedScale);
+                waitingTime = Randomizer.nextGamma(shape, 1/tiltedScale);
                 if (t - waitingTime > start) {
                     t -= waitingTime;
                     // add new hidden event
@@ -223,6 +224,14 @@ public abstract class AnnotatedTreeOperator extends TreeOperator {
         return logC + Math.log1p(-parameterization.getDeath(type)) + shape * Math.log((end - start) / scale);
     }
 
+    // Scale of the waiting times of a leaf from time t: scale c^(-1/shape) with c = (1 - d) times the hidden division
+    // factor at t, as c f(x) exp(-r x) is the gamma density with this scale for r = (c^(1/shape) - 1) / scale
+    private double tiltedScale(int type, double t) {
+        double shape = parameterization.getShape(type);
+        double logC = Math.log1p(-parameterization.getDeath(type)) + logDivisionFactor(type, t);
+        return parameterization.getLifetime(type) / shape * Math.exp(-logC / shape);
+    }
+
     // log of the hidden division factor 2 sym(i, i) P0_i(t) + sum_k asym(i, k) P0_k(t) of the likelihood
     private double logDivisionFactor(int type, double t) {
         double c = 2 * parameterization.getSymTransition(type, type) * approximateP0(type, t);
@@ -291,27 +300,19 @@ public abstract class AnnotatedTreeOperator extends TreeOperator {
 
         double logp = 0;
 
-        double lifetime = parameterization.getLifetime(type);
         double shape = parameterization.getShape(type);
-        double scale = lifetime / shape;
 
         double waitingTime;
 
         if (node.isLeaf() && start == 0.0) {
-            GammaDistribution gammaDist = new GammaDistribution(null, shape, scale);
-            if (eventCount == 1) {
-                waitingTime = end;
-            } else {
-                for (int i = 2; i < eventCount; i++) {
-                    waitingTime = node.getEvent(i).getHeight() - node.getEvent(i - 1).getHeight();
-                    logp += gammaDist.logDensity(waitingTime);
-                }
-                waitingTime = end - node.getEvent(eventCount - 1).getHeight();
-                logp += gammaDist.logDensity(waitingTime);
-                // remainder
-                waitingTime = node.getEvent(1).getHeight();
+            // waiting times backwards from end, each with the scale at its start, and the remainder down to 0
+            double t = end;
+            for (int i = eventCount - 1; i >= 1; i--) {
+                waitingTime = t - node.getEvent(i).getHeight();
+                logp += new GammaDistribution(null, shape, tiltedScale(type, t)).logDensity(waitingTime);
+                t = node.getEvent(i).getHeight();
             }
-            logp += Math.log(1 - gammaDist.cumulativeProbability(waitingTime));
+            logp += Math.log(1 - new GammaDistribution(null, shape, tiltedScale(type, t)).cumulativeProbability(t));
 
         } else {
             double length = end - start;
