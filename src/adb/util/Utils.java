@@ -299,6 +299,74 @@ public class Utils {
     }
 
 
+    /**
+     * Approximate P0 at time t before the present: P0 of a linear birth-death process with sampling probability rho,
+     * the extinction probability q = d / (1 - d) and the Malthusian growth rate r = (shape / lifetime)
+     * ((2 (1 - d))^(1 / shape) - 1) of the age-dependent process, so 1 - rho at t = 0 and q for large t if r > 0.
+     */
+    public static double approximateP0(double t, double lifetime, double shape, double death, double rho) {
+        double r = shape / lifetime * (Math.pow(2 * (1 - death), 1 / shape) - 1);
+        // birth rate with lambda - mu = r and mu / lambda = q, and its limit (1 - d) / lifetime at d = 1/2
+        double lambda = death == 0.5 ? 0.5 / lifetime : (1 - death) * r / (1 - 2 * death);
+        double growth = r == 0 ? t : -Math.expm1(-r * t) / r;
+        return 1 - rho / (Math.exp(-r * t) + rho * lambda * growth);
+    }
+
+    /**
+     * Event count n >= 1 of a renewal segment with gamma(alpha) waiting times: n - 1 = m hidden events
+     * have weight Y^m / Gamma(alpha (m + 1)), normalised by the Mittag-Leffler function E_{alpha,alpha}(Y).
+     * Drawn by inverting the CDF of the weights, truncated to the window around the mode where they exceed 1e-16 of
+     * the maximum.
+     */
+    public static int sampleMittagLefflerCount(double logY, double alpha) {
+        MittagLefflerWeights w = mittagLefflerLogWeights(logY, alpha);
+        double logZ = logSumExp(w.logW);
+        double u = Randomizer.nextDouble();
+        double cdf = 0;
+        for (int i = 0; i < w.logW.length; i++) {
+            cdf += Math.exp(w.logW[i] - logZ);
+            if (u < cdf) return w.first + i + 1;
+        }
+        return w.first + w.logW.length;
+    }
+
+    /** Log probability of n under sampleMittagLefflerCount. */
+    public static double logProbabilityMittagLefflerCount(int n, double logY, double alpha) {
+        return mittagLefflerLogWeight(n - 1, logY, alpha) - logSumExp(mittagLefflerLogWeights(logY, alpha).logW);
+    }
+
+    // log weights logW[i] of m = first + i: log-concave in m, so taken outwards from the approximate mode
+    // m + 1 = (Y^(1/alpha) + 1/2) / alpha until 1e-16 below the running maximum on both sides
+    private static MittagLefflerWeights mittagLefflerLogWeights(double logY, double alpha) {
+        int mode = (int) Math.max(0, Math.round((Math.exp(logY / alpha) + 0.5) / alpha - 1));
+        double cutoff = Math.log(1e-16);
+        double max = mittagLefflerLogWeight(mode, logY, alpha);
+        int lo = mode, hi = mode;
+        for (double w; lo > 0 && (w = mittagLefflerLogWeight(lo - 1, logY, alpha)) - max > cutoff; lo--) {
+            max = Math.max(max, w);
+        }
+        for (double w; (w = mittagLefflerLogWeight(hi + 1, logY, alpha)) - max > cutoff; hi++) {
+            max = Math.max(max, w);
+        }
+        double[] logW = new double[hi - lo + 1];
+        for (int m = lo; m <= hi; m++) logW[m - lo] = mittagLefflerLogWeight(m, logY, alpha);
+        return new MittagLefflerWeights(lo, logW);
+    }
+
+    private record MittagLefflerWeights(int first, double[] logW) {}
+
+    private static double mittagLefflerLogWeight(int m, double logY, double alpha) {
+        return (m == 0 ? 0 : m * logY) - Gamma.logGamma(alpha * (m + 1));
+    }
+
+    private static double logSumExp(double[] x) {
+        double max = Arrays.stream(x).max().orElse(Double.NEGATIVE_INFINITY);
+        double sum = 0;
+        for (double v : x) sum += Math.exp(v - max);
+        return max + Math.log(sum);
+    }
+
+
     /** For debugging: writes arrays of equal length as columns of a csv file, every thin-th row. */
     public static void saveArrays(List<double[]> arrays, int thin, String header, String fileName) {
 

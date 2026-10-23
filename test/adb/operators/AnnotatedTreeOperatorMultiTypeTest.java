@@ -68,24 +68,27 @@ public class AnnotatedTreeOperatorMultiTypeTest {
     // type changes stay where they are, the density is consistent also with several types per branch
     @Test
     public void testEventSampler() {
-        for (boolean drawEventCount : new boolean[]{true, false}) {
-            Randomizer.setSeed(1);
-            AnnotatedTreeParser tree = tree();
-            List<List<Integer>> before = typeHistories(tree);
-            List<List<Double>> changeHeights = changeHeights(tree);
+        for (boolean discretizedNormal : new boolean[]{true, false}) {
+            for (boolean drawEventCount : new boolean[]{true, false}) {
+                Randomizer.setSeed(1);
+                AnnotatedTreeParser tree = tree();
+                List<List<Integer>> before = typeHistories(tree);
+                List<List<Double>> changeHeights = changeHeights(tree);
 
-            EventSampler operator = new EventSampler();
-            operator.initByName("tree", tree, "parameterization", model, "drawEventCount", drawEventCount, "proportionBranches", 1.0, "weight", 1.0);
-            double logHR = operator.proposal();
+                EventSampler operator = new EventSampler();
+                operator.initByName("tree", tree, "parameterization", model, "drawEventCount", drawEventCount,
+                        "discretizedNormal", discretizedNormal, "proportionBranches", 1.0, "weight", 1.0);
+                double logHR = operator.proposal();
 
-            assertTrue(Double.isFinite(logHR));
-            assertEquals(before, typeHistories(tree));
-            assertEquals(changeHeights, changeHeights(tree));
-            assertDoesNotThrow(() -> tree.validate(model));
+                assertTrue(Double.isFinite(logHR));
+                assertEquals(before, typeHistories(tree));
+                assertEquals(changeHeights, changeHeights(tree));
+                assertDoesNotThrow(() -> tree.validate(model));
 
-            for (Node node : tree.getNodesAsArray()) {
-                double drawn = operator.resampleEvents((AnnotatedNode) node, drawEventCount);
-                assertEquals(drawn, operator.getBranchProbability((AnnotatedNode) node, drawEventCount), 1e-9, "node " + node.getNr());
+                for (Node node : tree.getNodesAsArray()) {
+                    double drawn = operator.resampleEvents((AnnotatedNode) node, drawEventCount);
+                    assertEquals(drawn, operator.getBranchProbability((AnnotatedNode) node, drawEventCount), 1e-9, "node " + node.getNr());
+                }
             }
         }
     }

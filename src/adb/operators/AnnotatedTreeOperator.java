@@ -25,9 +25,12 @@ import java.util.List;
  * Along a branch the events are the node itself, the type changes and the hidden events of the same type.
  * The topology operators keep the type changes of a branch (mapped to the new branch length, see scaleEvents)
  * and redraw the hidden events between them with resampleEvents. The number of hidden events per type segment
- * is approximated by a discretised normal distribution (central limit theorem for renewal processes),
- * and their positions follow a Dirichlet distribution on the segment, with the shape of the lifetime distribution
- * as concentration. A leaf sampled at time 0 is drawn exactly backwards in time from the lifetime distribution.
+ * is approximated either by a discretised normal distribution (central limit theorem for renewal processes) or
+ * by weights Y^m / Gamma(shape (m + 1)) for m hidden events, with Y = c (1 - d) (T / scale)^shape and c the
+ * geometric mean over the segment of the hidden division factor of the likelihood (2 P0 for one type), with P0 from
+ * Utils.approximateP0. Their positions follow a Dirichlet distribution on the segment, with the shape of the lifetime
+ * distribution as concentration.
+ * A leaf sampled at time 0 is drawn exactly backwards in time from the lifetime distribution.
  * resampleEvents returns the log density of the draw and getBranchProbability that of the current events,
  * so the difference of the two enters the log Hastings ratio.
  */
@@ -36,6 +39,9 @@ public abstract class AnnotatedTreeOperator extends TreeOperator {
 
     public Input<Parameterization> parameterizationInput =
             new Input<>("parameterization", "ADB parameterization", Input.Validate.REQUIRED);
+
+    public Input<Boolean> discretizedNormalInput = new Input<>("discretizedNormal",
+            "draw event counts from the discretised normal approximation instead of the counts under an approximate P0 (default false)", false);
 
     protected Parameterization parameterization;
 
@@ -119,7 +125,7 @@ public abstract class AnnotatedTreeOperator extends TreeOperator {
 
     // Draws the hidden events of one type segment [start, end) into events and returns the log density of the draw.
     // A leaf starting at height 0 draws waiting times backwards from end, and the remaining time contributes the survival probability.
-    // Otherwise the event count comes from the normal approximation and the positions from the Dirichlet distribution.
+    // Otherwise the event count comes from sampleEventCount and the positions from the Dirichlet distribution.
     private double sampleEventsPerType(AnnotatedNode node, double start, double end, int type, int nEvents, boolean drawEventCount, ArrayList<EventNode> events) {
 
         double logp = 0;
@@ -155,12 +161,8 @@ public abstract class AnnotatedTreeOperator extends TreeOperator {
             double length = end - start;
             int eventCount;
             if (drawEventCount) {
-                // use CLT for renewal processes: approximate number of events with discretized normal distribution
-                double mean = length / lifetime;
-                double variance = ((shape * (scale * scale)) * length) / Math.pow(lifetime, 3);
-                double sd = Math.sqrt(variance);
-                eventCount = Utils.sampleDiscretizedNormal(mean, sd);
-                logp += Utils.logProbabilityDiscretizedNormal(eventCount, mean, sd);
+                eventCount = sampleEventCount(type, start, end);
+                logp += logProbabilityEventCount(eventCount, type, start, end);
             } else {
                 eventCount = nEvents;
             }
@@ -179,6 +181,60 @@ public abstract class AnnotatedTreeOperator extends TreeOperator {
         }
 
         return logp;
+    }
+
+
+    // Draws the event count (the first event and the hidden events) of a segment of the given type from start to end.
+    private int sampleEventCount(int type, double start, double end) {
+        if (discretizedNormalInput.get()) {
+            double[] meanSd = normalEventCount(type, end - start);
+            return Utils.sampleDiscretizedNormal(meanSd[0], meanSd[1]);
+        }
+        return Utils.sampleMittagLefflerCount(logY(type, start, end), parameterization.getShape(type));
+    }
+
+    // Log probability of eventCount under sampleEventCount.
+    private double logProbabilityEventCount(int eventCount, int type, double start, double end) {
+        if (discretizedNormalInput.get()) {
+            double[] meanSd = normalEventCount(type, end - start);
+            return Utils.logProbabilityDiscretizedNormal(eventCount, meanSd[0], meanSd[1]);
+        }
+        return Utils.logProbabilityMittagLefflerCount(eventCount, logY(type, start, end), parameterization.getShape(type));
+    }
+
+    // CLT for renewal processes: mean T / lifetime and variance shape scale^2 T / lifetime^3 of the event count
+    private double[] normalEventCount(int type, double length) {
+        double lifetime = parameterization.getLifetime(type);
+        double scale = lifetime / parameterization.getShape(type);
+        double variance = parameterization.getShape(type) * scale * scale * length / Math.pow(lifetime, 3);
+        return new double[]{length / lifetime, Math.sqrt(variance)};
+    }
+
+    // log Y = log(c (1 - d)) + shape log(T / scale), with log c averaged over the segment by Simpson's rule
+    private double logY(int type, double start, double end) {
+        int n = 8;
+        double h = (end - start) / n;
+        double logC = 0;
+        for (int i = 0; i <= n; i++) {
+            logC += (i == 0 || i == n ? 1 : i % 2 == 1 ? 4 : 2) * logDivisionFactor(type, start + i * h) / (3 * n);
+        }
+        double shape = parameterization.getShape(type);
+        double scale = parameterization.getLifetime(type) / shape;
+        return logC + Math.log1p(-parameterization.getDeath(type)) + shape * Math.log((end - start) / scale);
+    }
+
+    // log of the hidden division factor 2 sym(i, i) P0_i(t) + sum_k asym(i, k) P0_k(t) of the likelihood
+    private double logDivisionFactor(int type, double t) {
+        double c = 2 * parameterization.getSymTransition(type, type) * approximateP0(type, t);
+        for (int k = 0; k < parameterization.getNTypes(); k++) {
+            c += parameterization.getAsymTransition(type, k) * approximateP0(k, t);
+        }
+        return Math.log(c);
+    }
+
+    private double approximateP0(int type, double t) {
+        return Utils.approximateP0(t, parameterization.getLifetime(type), parameterization.getShape(type),
+                parameterization.getDeath(type), parameterization.getSampling(type));
     }
 
 
@@ -260,10 +316,7 @@ public abstract class AnnotatedTreeOperator extends TreeOperator {
         } else {
             double length = end - start;
             if (drawEventCount) {
-                double mean = length / lifetime;
-                double variance = ((shape * (scale * scale)) * length) / Math.pow(lifetime, 3);
-                double sd = Math.sqrt(variance);
-                logp += Utils.logProbabilityDiscretizedNormal(eventCount, mean, sd);
+                logp += logProbabilityEventCount(eventCount, type, start, end);
             }
             double logDirichlet = 0;
             for (int i = ix + 1; i < ix + eventCount; i++) {

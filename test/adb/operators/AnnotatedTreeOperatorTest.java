@@ -371,15 +371,18 @@ public class AnnotatedTreeOperatorTest {
     // which is what makes the Hastings ratio of the event moves correct
     @Test
     public void testDrawDensityMatchesEvaluatedDensity() {
-        EventSampler operator = new EventSampler();
-        operator.initByName("tree", tree, "parameterization", model, "weight", 1.0);
+        for (boolean discretizedNormal : new boolean[]{true, false}) {
+            EventSampler operator = new EventSampler();
+            operator.initByName("tree", tree, "parameterization", model, "discretizedNormal", discretizedNormal,
+                    "weight", 1.0);
 
-        for (boolean drawEventCount : new boolean[]{true, false}) {
-            for (int draw = 0; draw < 20; draw++) {
-                for (beast.base.evolution.tree.Node node : tree.getNodesAsArray()) {
-                    double drawn = operator.resampleEvents((AnnotatedNode) node, drawEventCount);
-                    double evaluated = operator.getBranchProbability((AnnotatedNode) node, drawEventCount);
-                    assertEquals(drawn, evaluated, 1e-9, "node " + node.getNr());
+            for (boolean drawEventCount : new boolean[]{true, false}) {
+                for (int draw = 0; draw < 20; draw++) {
+                    for (beast.base.evolution.tree.Node node : tree.getNodesAsArray()) {
+                        double drawn = operator.resampleEvents((AnnotatedNode) node, drawEventCount);
+                        double evaluated = operator.getBranchProbability((AnnotatedNode) node, drawEventCount);
+                        assertEquals(drawn, evaluated, 1e-9, "node " + node.getNr());
+                    }
                 }
             }
         }

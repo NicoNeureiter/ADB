@@ -23,8 +23,8 @@ import java.util.List;
  * so every parameter needs one entry per type. All branches that carry type j are redrawn (and no others), since only
  * their densities depend on the parameters of type j. This set is fixed by the type changes, which the move keeps,
  * so the reverse move redraws the same branches; proportionBranches is then not used.
- * Redrawing only helps for parameters that the event proposal uses, the lifetime and the shape: for others, such as
- * the death or sampling probability, the redrawn events do not follow the change, which only lowers the acceptance.
+ * Redrawing only helps for parameters that the event proposal uses: the lifetime and the shape, and the death and
+ * sampling probability through the hidden-event factor (1 - d) 2 P0 (except in the discretized normal event count).
  */
 @Description("Scales parameters up and down with a Bactrian kernel and redraws the hidden events on a subset of branches (random, or those carrying one type with elementWise)")
 public class UpDownEventSampler extends AnnotatedTreeOperator {
